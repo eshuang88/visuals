@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ambient Techno — Chrome Sands</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000; overflow: hidden;
+    font-family: -apple-system, "Helvetica Neue", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  /* 4:3 stage, letterboxed inside any window */
+  #stage {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    width: min(100vw, calc(100vh * 4 / 3));
+    height: min(100vh, calc(100vw * 3 / 4));
+    background: #04060c;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* Start overlay (browsers require a gesture for fullscreen + mic) */
+  #overlay {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px; cursor: pointer;
+    background: radial-gradient(120% 90% at 50% 40%, rgba(20,40,70,0.35), rgba(2,4,10,0.9));
+    color: #cdd8e6; letter-spacing: 0.08em;
+    transition: opacity 0.9s ease;
+    -webkit-user-select: none; user-select: none;
+  }
+  #overlay .title { font-size: clamp(20px, 3.2vw, 40px); font-weight: 300; letter-spacing: 0.28em; opacity: 0.92; }
+  #overlay .sub   { font-size: clamp(12px, 1.4vw, 16px); font-weight: 300; opacity: 0.6; text-align: center; line-height: 1.9; }
+  #overlay .go {
+    margin-top: 8px; padding: 12px 30px; border: 1px solid rgba(180,210,255,0.4);
+    border-radius: 100px; font-size: clamp(12px,1.4vw,15px); letter-spacing: 0.2em;
+    opacity: 0.85; transition: all .3s ease;
+  }
+  #overlay:hover .go { border-color: rgba(200,225,255,0.85); opacity: 1; box-shadow: 0 0 40px rgba(120,170,255,0.25); }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+
+  #hud {
+    position: absolute; left: 16px; bottom: 14px; z-index: 5;
+    font-size: 11px; letter-spacing: 0.14em; color: rgba(180,200,230,0.35);
+    pointer-events: none; transition: opacity 0.6s ease; opacity: 0;
+  }
+  #stage.showhud #hud { opacity: 1; }
+  body.hidecursor, body.hidecursor * { cursor: none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <div id="hud">AMBIENT · <span id="src">115 BPM</span> · <span id="lvl">—</span></div>
+    <div id="overlay">
+      <div class="title">CHROME&nbsp;SANDS</div>
+      <div class="sub">ambient techno · live visual · 4:3<br>點擊進入全螢幕 — 允許麥克風以隨低音起伏<br><span style="opacity:.6">(無訊號時預設 115&nbsp;BPM)</span></div>
+      <div class="go">CLICK TO START</div>
+    </div>
+  </div>
+</div>
+
+<script id="vert" type="x-shader/x-vertex">
+attribute vec2 a_pos;
+void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }
+</script>
+
+<script id="frag" type="x-shader/x-fragment">
+precision highp float;
+uniform vec2  u_res;
+uniform float u_time;
+uniform float u_bass;   // 0..1 low-frequency energy (mic or 115bpm fallback)
+uniform float u_flow;   // continuously accumulated flow phase (seamless)
+
+// ---------- hash / value noise ----------
+float hash(vec2 p){
+  p = fract(p * vec2(123.34, 345.45));
+  p += dot(p, p + 34.345);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f*f*(3.0-2.0*f);
+  float a = hash(i), b = hash(i+vec2(1.0,0.0));
+  float c = hash(i+vec2(0.0,1.0)), d = hash(i+vec2(1.0,1.0));
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+const mat2 M = mat2(1.62, 1.18, -1.18, 1.62);
+// smoother fbm (low octave count, quick roll-off) -> big soft folds, not foil crinkle
+float fbm(vec2 p){
+  float v = 0.0, a = 0.58;
+  for(int i=0;i<5;i++){ v += a*vnoise(p); p = M*p; a *= 0.44; }
+  return v;
+}
+
+// ---------- full-frame liquid-chrome heightfield ----------
+// iterative domain warp (iq-style) -> a few big sweeping metal folds
+float heightField(vec2 p, float flow, float bass){
+  float warp = 1.7 + bass * 1.0;                 // fold depth breathes with the bass
+  vec2 w1 = vec2(fbm(p + vec2(0.0, flow)),
+                 fbm(p + vec2(5.2, 1.3) - flow*0.55));
+  vec2 w2 = vec2(fbm(p + 2.6*w1 + vec2(1.7, 9.2) + flow*0.35),
+                 fbm(p + 2.6*w1 + vec2(8.3, 2.8) - flow*0.20));
+  float h = fbm(p + warp*w2);
+  return h;
+}
+
+// ---------- faux chrome environment (what the metal reflects) ----------
+vec3 env(vec3 rd){
+  float y = rd.y;
+  vec3 lower   = vec3(0.002, 0.006, 0.018);   // near-black blue floor of the reflection
+  vec3 upper   = vec3(0.02,  0.05,  0.12);    // deep blue sky
+  vec3 cream   = vec3(1.00,  0.95,  0.80);    // warm cream light band
+  vec3 col = mix(lower, upper, smoothstep(-0.35, 0.7, y));
+  // hot, narrow horizon light band -> the source that makes it read as chrome
+  float band = exp(-abs(y - 0.015) * 10.0);
+  col += cream * band * 1.7;
+  // a second softer bounce band gives creamy mid-tones
+  col += vec3(0.55, 0.62, 0.72) * exp(-abs(y + 0.12) * 4.0) * 0.35;
+  // cold white key highlight
+  float key = pow(max(dot(rd, normalize(vec3(-0.42, 0.34, 0.62))), 0.0), 40.0);
+  col += vec3(0.85, 0.93, 1.10) * key * 1.5;
+  return col;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;  // y in [-.5,.5], x aspect-correct
+  float bass = u_bass;
+
+  // sample the liquid-chrome field over the whole frame (low freq = big folds)
+  vec2 p = uv * 0.98;
+  float e  = 0.02;
+  float hC = heightField(p,                 u_flow, bass);
+  float hL = heightField(p + vec2(-e, 0.0), u_flow, bass);
+  float hR = heightField(p + vec2( e, 0.0), u_flow, bass);
+  float hD = heightField(p + vec2(0.0,-e),  u_flow, bass);
+  float hU = heightField(p + vec2(0.0, e),  u_flow, bass);
+
+  float relief = 0.60 + bass * 0.38;               // fold steepness breathes with the bass
+  vec2  grad   = vec2(hR - hL, hU - hD) / (2.0 * e);
+  vec3  N      = normalize(vec3(-grad * relief, 1.0));
+
+  // camera looks slightly down the folds toward a luminous horizon
+  vec3 V = normalize(vec3(0.0, 0.32, 1.0));
+  vec3 L = normalize(vec3(-0.38, 0.46, 0.55));      // cold white key light
+  vec3 H = normalize(L + V);
+
+  // chrome: environment reflection dominates, fresnel opens it up at grazing folds
+  vec3  R    = reflect(-V, N);
+  vec3  refl = env(R);
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 2.8);
+
+  vec3 body = mix(vec3(0.006,0.018,0.05), vec3(0.34,0.47,0.62), hC);  // creamy-blue base
+  vec3 col  = mix(body, refl, 0.58 + 0.42*fres);
+
+  // chrome highlights: broad creamy smears rather than sharp water glints
+  float ndh   = max(dot(N, H), 0.0);
+  float spec  = pow(ndh, 42.0);
+  col += vec3(1.0, 0.97, 0.86) * spec * 1.7;
+  float sheen = pow(ndh, 7.0);
+  col += vec3(0.88, 0.92, 0.97) * sheen * 0.55;      // the creamy satin body of the fold
+  // soft cold diffuse fill keeps the valleys blue rather than black-dead
+  col += vec3(0.08, 0.15, 0.28) * max(dot(N, L), 0.0) * 0.25;
+
+  // luminous cream haze pooling toward the upper frame (the light behind the drape)
+  float hazeY = smoothstep(-0.1, 0.5, uv.y);
+  col += vec3(0.85, 0.88, 0.82) * hazeY * hazeY * 0.14 * (0.6 + 0.6*fres);
+  // deepen the very top toward near-black blue
+  col = mix(col, vec3(0.01,0.03,0.07), smoothstep(0.28, 0.5, uv.y) * 0.55);
+
+  // -------- grade + grain + vignette --------
+  col *= 1.0 + bass * 0.10;                                  // whole frame swells with the bass
+  col = pow(max(col, 0.0), vec3(0.95));                      // gentle lift
+  col = mix(col, col*col*(3.0-2.0*col), 0.45);               // S-contrast: crush valleys, bloom crests
+
+  vec2 uvn = gl_FragCoord.xy / u_res;
+  float vig = smoothstep(1.25, 0.35, length((uvn-0.5)*vec2(1.15,1.35)));
+  col *= 0.55 + 0.45*vig;
+
+  // animated fine grain + static paper grain (matches the reference texture)
+  float g  = hash(gl_FragCoord.xy + fract(u_time)*vec2(91.7, 47.3));
+  float g2 = hash(gl_FragCoord.xy * 1.7 + 3.1);
+  col += (g - 0.5) * 0.055;
+  col *= 1.0 - (g2 - 0.5) * 0.05;
+
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}
+</script>
+
+<script>
+(() => {
+  const canvas  = document.getElementById('gl');
+  const stage   = document.getElementById('stage');
+  const overlay = document.getElementById('overlay');
+  const srcEl   = document.getElementById('src');
+  const lvlEl   = document.getElementById('lvl');
+
+  const gl = canvas.getContext('webgl', { antialias: true, alpha: false, powerPreference: 'high-performance' })
+          || canvas.getContext('experimental-webgl');
+  if (!gl) { overlay.querySelector('.sub').textContent = '此瀏覽器不支援 WebGL'; return; }
+
+  function compile(type, src){
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s);
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER,   document.getElementById('vert').textContent));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, document.getElementById('frag').textContent));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw gl.getProgramInfoLog(prog);
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'a_pos');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  const U = {
+    res:  gl.getUniformLocation(prog, 'u_res'),
+    time: gl.getUniformLocation(prog, 'u_time'),
+    bass: gl.getUniformLocation(prog, 'u_bass'),
+    flow: gl.getUniformLocation(prog, 'u_flow'),
+  };
+
+  function resize(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.round(stage.clientWidth  * dpr);
+    const h = Math.round(stage.clientHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------------- audio: mic bass with 115 BPM fallback ----------------
+  const BPM = 115;
+  let analyser = null, freq = null;
+  let micLevel = 0;      // smoothed live low-frequency energy
+  let silence = 0;       // seconds below threshold
+  let fbWeight = 1;      // crossfade toward fallback (1 = no signal)
+  let flowPhase = 0;     // accumulated flow (seamless, never resets)
+  let last = performance.now();
+
+  async function startAudio(){
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = ctx.createMediaStreamSource(stream);
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.75;
+      src.connect(analyser);
+      freq = new Uint8Array(analyser.frequencyBinCount);
+    } catch (e) {
+      analyser = null; // permission denied / no device -> pure 115 BPM
+    }
+  }
+
+  function readBass(){
+    if (!analyser) return 0;
+    analyser.getByteFrequencyData(freq);
+    // sum the lowest bins (~20–200 Hz for 44.1k / fft 1024)
+    let s = 0; const N = 8;
+    for (let i = 1; i <= N; i++) s += freq[i];
+    return Math.min(1, (s / N / 255) * 1.6);
+  }
+
+  function fallbackEnv(t){
+    // gentle undulation locked to 115 BPM: a slow 2-beat swell + a soft per-beat pulse
+    const beat  = t * BPM / 60;
+    const pulse = Math.exp(-((beat % 1)) * 3.2);              // decays each beat
+    const swell = 0.5 + 0.5 * Math.sin(t * (BPM/60) * Math.PI); // slow rise/fall
+    return Math.min(1, 0.30 * swell + 0.55 * pulse);
+  }
+
+  function frame(now){
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    const t = now / 1000;
+
+    const raw = readBass();
+    micLevel += (raw - micLevel) * 0.25;
+    if (micLevel < 0.045) silence += dt; else silence = 0;
+    const wantFallback = (!analyser || silence > 1.4) ? 1 : 0;
+    fbWeight += (wantFallback - fbWeight) * 0.04;
+
+    const bass = micLevel * (1 - fbWeight) + fallbackEnv(t) * fbWeight;
+
+    // flow speed drifts slowly, nudged forward by the bass -> "breathing" sand
+    flowPhase += dt * (0.05 + bass * 0.06);
+
+    gl.uniform2f(U.res, canvas.width, canvas.height);
+    gl.uniform1f(U.time, t);
+    gl.uniform1f(U.bass, bass);
+    gl.uniform1f(U.flow, flowPhase);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    if (stage.classList.contains('showhud')){
+      srcEl.textContent = fbWeight > 0.5 ? `${BPM} BPM` : 'MIC';
+      lvlEl.textContent = '▁▂▃▄▅▆▇█'[Math.min(7, Math.floor(bass*8))] || '▁';
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------------- start / fullscreen / UX ----------------
+  async function begin(){
+    overlay.classList.add('hidden');
+    resize();
+    const el = document.documentElement;
+    const rf = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
+    if (rf) { try { await rf.call(el); } catch(e){} }
+    await startAudio();
+    setTimeout(resize, 120);
+  }
+  overlay.addEventListener('click', begin);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F'){
+      const el = document.documentElement;
+      if (!document.fullscreenElement){ (el.requestFullscreen||el.webkitRequestFullscreen).call(el); }
+      else { (document.exitFullscreen||document.webkitExitFullscreen).call(document); }
+    }
+    if (e.key === 'h' || e.key === 'H') stage.classList.toggle('showhud');
+  });
+  document.addEventListener('fullscreenchange', () => setTimeout(resize, 120));
+
+  // auto-hide cursor when idle
+  let idle;
+  window.addEventListener('mousemove', () => {
+    document.body.classList.remove('hidecursor');
+    clearTimeout(idle);
+    idle = setTimeout(() => document.body.classList.add('hidecursor'), 2500);
+  });
+})();
+</script>
+</body>
+</html>
