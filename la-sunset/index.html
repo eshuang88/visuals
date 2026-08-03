@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LA Sunset — Moonvoid Loop</title>
+<style>
+  :root{
+    --bg:#0a0806;
+    --edge:#1a1512;
+    --ink:#c9bfae;
+    --muted:#6f665a;
+    --accent:#ff7a2f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(120% 120% at 50% 0%, #16110d 0%, #0a0806 55%, #050403 100%);
+    color:var(--ink);
+    font:13px/1.5 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    letter-spacing:.02em;
+    min-height:100%;
+    display:flex;flex-direction:column;align-items:center;
+    padding:28px 16px 40px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .head{
+    width:min(100%,960px);
+    display:flex;justify-content:space-between;align-items:baseline;
+    gap:16px;margin-bottom:16px;flex-wrap:wrap;
+  }
+  .title{font-size:12px;letter-spacing:.34em;text-transform:uppercase;color:var(--ink)}
+  .sub{font-size:11px;color:var(--muted);letter-spacing:.16em}
+
+  .stage{
+    position:relative;
+    width:min(100%,960px);
+    aspect-ratio:4/3;
+    border-radius:10px;
+    overflow:hidden;
+    background:#0a0806;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.05) inset,
+      0 30px 80px -30px rgba(0,0,0,.9),
+      0 0 0 1px var(--edge);
+  }
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+
+  /* --- transport / HUD --- */
+  .hud{
+    width:min(100%,960px);
+    margin-top:14px;
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  }
+  button{
+    font:inherit;color:var(--ink);
+    background:#120d0a;border:1px solid var(--edge);
+    padding:8px 14px;border-radius:7px;cursor:pointer;
+    letter-spacing:.12em;text-transform:uppercase;font-size:11px;
+    transition:border-color .2s,color .2s,background .2s;
+  }
+  button:hover{border-color:#3a2f26;color:#fff}
+  button.on{color:var(--accent);border-color:#4a2f1c}
+
+  .scrub{flex:1;min-width:180px;display:flex;align-items:center;gap:10px}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;flex:1;height:3px;border-radius:3px;
+    background:linear-gradient(90deg,#3a2a1c,#1c1712);outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+    background:var(--accent);cursor:pointer;box-shadow:0 0 8px rgba(255,122,47,.6)
+  }
+  input[type=range]::-moz-range-thumb{
+    width:12px;height:12px;border:none;border-radius:50%;
+    background:var(--accent);cursor:pointer
+  }
+  .read{font-variant-numeric:tabular-nums;color:var(--muted);font-size:11px;letter-spacing:.1em}
+  .beat{
+    width:9px;height:9px;border-radius:50%;
+    background:#2a201a;box-shadow:0 0 0 1px #3a2c22 inset;
+    transition:none;
+  }
+  .meta{
+    width:min(100%,960px);margin-top:18px;
+    display:flex;gap:26px;flex-wrap:wrap;color:var(--muted);font-size:11px;letter-spacing:.08em
+  }
+  .meta b{color:var(--ink);font-weight:400}
+  .k{color:#5a5148}
+</style>
+</head>
+<body>
+  <div class="head">
+    <div class="title">LA&nbsp;Sunset · Moonvoid&nbsp;Loop</div>
+    <div class="sub">20.0s · 115&nbsp;BPM · 4:3</div>
+  </div>
+
+  <div class="stage">
+    <canvas id="c"></canvas>
+  </div>
+
+  <div class="hud">
+    <button id="play" class="on">❚❚ Pause</button>
+    <div class="beat" id="beat"></div>
+    <div class="scrub">
+      <input id="seek" type="range" min="0" max="1000" value="0" />
+      <span class="read" id="t">00.0 / 20.0</span>
+    </div>
+    <button id="grain" class="on">Grain</button>
+  </div>
+
+  <div class="meta">
+    <div><span class="k">CYCLE</span> <b>dusk → void → dawn</b></div>
+    <div><span class="k">TEMPO</span> <b>115 BPM flare pulse</b></div>
+    <div><span class="k">MOOD</span> <b>fogged · saturated · obscure</b></div>
+    <div><span class="k">LOOP</span> <b>seamless</b></div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d', { alpha:false });
+
+  // ---- config ----
+  const LOOP = 20.0;            // seconds
+  const BPM  = 115;
+  const BEAT = 60 / BPM;        // seconds per beat
+  const AR   = 4/3;
+
+  // internal render resolution (scaled to display via CSS)
+  let W = 0, H = 0, DPR = 1;
+  function resize(){
+    const r = cv.getBoundingClientRect();
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.round(r.width * DPR);
+    H = Math.round(r.height * DPR);
+    cv.width = W; cv.height = H;
+    buildGrain();
+  }
+
+  // ---- tiny value noise ----
+  const P = new Uint8Array(512);
+  (() => {
+    const perm = Array.from({length:256}, (_,i)=>i);
+    let s = 1337;
+    const rnd = () => (s = (s*1664525 + 1013904223) >>> 0) / 4294967296;
+    for (let i=255;i>0;i--){ const j=(rnd()*(i+1))|0; [perm[i],perm[j]]=[perm[j],perm[i]]; }
+    for (let i=0;i<512;i++) P[i]=perm[i&255];
+  })();
+  const fade = t => t*t*t*(t*(t*6-15)+10);
+  const lerp = (a,b,t)=>a+(b-a)*t;
+  function grad(h,x,y){ const u = (h&1)?x:-x, v=(h&2)?y:-y; return u+v; }
+  function noise2(x,y){
+    const X=Math.floor(x)&255, Y=Math.floor(y)&255;
+    x-=Math.floor(x); y-=Math.floor(y);
+    const u=fade(x), v=fade(y);
+    const a=P[X]+Y, b=P[X+1]+Y;
+    return lerp(
+      lerp(grad(P[a],x,y),   grad(P[b],x-1,y),   u),
+      lerp(grad(P[a+1],x,y-1),grad(P[b+1],x-1,y-1),u),
+      v)*0.5+0.5;
+  }
+  function fbm(x,y){
+    let v=0,a=0.5,f=1;
+    for(let i=0;i<4;i++){ v+=a*noise2(x*f,y*f); f*=2; a*=0.5; }
+    return v;
+  }
+
+  // ---- color helpers ----
+  const clamp=(v,a=0,b=1)=>v<a?a:v>b?b:v;
+  const smooth=(e0,e1,x)=>{ x=clamp((x-e0)/(e1-e0)); return x*x*(3-2*x); };
+  function mix(c1,c2,t){ return [lerp(c1[0],c2[0],t),lerp(c1[1],c2[1],t),lerp(c1[2],c2[2],t)]; }
+  const rgb=c=>`rgb(${c[0]|0},${c[1]|0},${c[2]|0})`;
+  const rgba=(c,a)=>`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+
+  // Palette keyed to the photo: warm saturated horizon, grey-blue upper sky,
+  // deep void at night.  d = "daylight/warmth" 0..1
+  function skyTop(d){
+    // night slate-teal -> dusk grey-blue -> sunset warm grey
+    const night=[14,16,22], dusk=[70,72,86], warm=[150,120,96];
+    return d<0.5 ? mix(night,dusk,d*2) : mix(dusk,warm,(d-0.5)*2);
+  }
+  function skyHorizon(d){
+    const night=[24,18,20], ember=[196,72,20], blaze=[255,150,40];
+    return d<0.55 ? mix(night,ember,smooth(0,.55,d)) : mix(ember,blaze,smooth(.55,1,d));
+  }
+  function seaBase(d){
+    const night=[10,14,20], dusk=[40,44,58], warm=[92,86,92];
+    return d<0.5 ? mix(night,dusk,d*2) : mix(dusk,warm,(d-0.5)*2);
+  }
+
+  // ---- offscreen grain ----
+  let grainCv=null, grainOn=true;
+  function buildGrain(){
+    grainCv = document.createElement('canvas');
+    const gs = 220;
+    grainCv.width=gs; grainCv.height=gs;
+    const gx=grainCv.getContext('2d');
+    const id=gx.createImageData(gs,gs);
+    for(let i=0;i<id.data.length;i+=4){
+      const n=(Math.random()*255)|0;
+      id.data[i]=id.data[i+1]=id.data[i+2]=n;
+      id.data[i+3]=255;
+    }
+    gx.putImageData(id,0,0);
+  }
+
+  // ---- cloud bank (static shapes, drift slowly), matched to photo ----
+  // Wispy horizontal streaks rather than round blobs.
+  // x centre, y (rel to horizon), w width, h height, d density, seed
+  const clouds = [
+    {x:0.20,y:-0.03,w:0.34,h:0.05,d:0.95,seed:3},
+    {x:0.44,y:-0.07,w:0.22,h:0.035,d:0.7, seed:11},
+    {x:0.50,y:0.008,w:0.11,h:0.028,d:1.0, seed:19}, // dark cloud the sun tucks behind
+    {x:0.72,y:-0.05,w:0.30,h:0.045,d:0.85,seed:5},
+    {x:0.90,y:-0.11,w:0.20,h:0.03, d:0.75,seed:23},
+    {x:0.07,y:-0.12,w:0.20,h:0.03, d:0.7, seed:31},
+  ];
+  // faint high cirrus wisps
+  const cirrus = [
+    {x:0.35,y:-0.30,w:0.5,h:0.012,d:0.5,seed:7},
+    {x:0.75,y:-0.24,w:0.4,h:0.010,d:0.45,seed:13},
+    {x:0.15,y:-0.18,w:0.3,h:0.009,d:0.4,seed:17},
+  ];
+
+  // ---------------------------------------------------------------
+  function draw(time){
+    const cyc = (time % LOOP) / LOOP;          // 0..1 around the loop
+    // elevation: 1 at start (sun on horizon, warm) -> 0 mid (void) -> 1 end
+    const e = 0.5 + 0.5*Math.cos(cyc*Math.PI*2);
+    // slightly gamma the warmth so dusk lingers and the void feels deep
+    const d = Math.pow(e, 0.85);
+
+    // beat pulse (true 115 BPM), gentle
+    const bp = time / BEAT;
+    const beatFrac = bp - Math.floor(bp);
+    const pulse = Math.exp(-beatFrac*6) * 0.6 + 0.4*Math.pow(Math.sin(bp*Math.PI),2);
+
+    const horizon = H*0.44;
+    const sunR = W*0.052;
+
+    // sun travels vertically through the horizon. At e=1 it sits ON the horizon
+    // (half-sunk), at e=0 it is well below the sea.
+    const sunX = W*0.47;
+    const sunY = horizon + (1-e)*H*0.20 - (e-0.5)*H*0.02;
+
+    // ===== SKY =====
+    const gTop = skyTop(d), gHor = skyHorizon(d);
+    const sky = ctx.createLinearGradient(0,0,0,horizon);
+    sky.addColorStop(0, rgb(gTop));
+    sky.addColorStop(0.62, rgb(mix(gTop,gHor,0.55)));
+    sky.addColorStop(1, rgb(gHor));
+    ctx.fillStyle=sky;
+    ctx.fillRect(0,0,W,horizon+2);
+
+    // ===== SATURATED FLARE (additive glow around sun) =====
+    ctx.globalCompositeOperation='lighter';
+    const flareR = sunR*(9 + pulse*1.6) * (0.5+d*0.9);
+    const flareA = (0.10 + d*0.55) * (0.85+pulse*0.25);
+    const fl = ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,flareR);
+    fl.addColorStop(0, rgba([255,236,180], flareA));
+    fl.addColorStop(0.18, rgba([255,150,44], flareA*0.85));
+    fl.addColorStop(0.5, rgba([230,80,20], flareA*0.35));
+    fl.addColorStop(1, 'rgba(180,40,10,0)');
+    ctx.fillStyle=fl;
+    ctx.fillRect(0,0,W,horizon+H*0.1);
+
+    // wide low haze-glow hugging the horizon (the orange band)
+    const bandA = (0.06 + d*0.4);
+    const band = ctx.createRadialGradient(sunX,horizon,0,sunX,horizon,W*0.75);
+    band.addColorStop(0, rgba([255,150,50],bandA));
+    band.addColorStop(0.4, rgba([210,70,20],bandA*0.4));
+    band.addColorStop(1,'rgba(120,30,10,0)');
+    ctx.fillStyle=band;
+    ctx.fillRect(0,0,W,horizon+2);
+    ctx.globalCompositeOperation='source-over';
+
+    // ===== SUN DISC =====
+    if (sunY < horizon + sunR*1.2 && d>0.02){
+      const discA = clamp(0.35+d*0.8);
+      const sd = ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,sunR);
+      sd.addColorStop(0, rgba([255,248,222],discA));
+      sd.addColorStop(0.6, rgba([255,214,120],discA));
+      sd.addColorStop(1, rgba([255,150,50],discA*0.7));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0,0,W,horizon);          // clip to above the sea (sun sinks in)
+      ctx.clip();
+      ctx.fillStyle=sd;
+      ctx.beginPath(); ctx.arc(sunX,sunY,sunR,0,7); ctx.fill();
+      ctx.restore();
+    }
+
+    // ===== CLOUDS (soft wispy silhouettes over the band) =====
+    const drift = time*0.004;
+    function drawStreak(cl, band, darkCol, litMax){
+      const cx = ((cl.x + drift*0.15)%1.2) * W;
+      const cyBase = horizon - H*0.10 + cl.y*H;
+      const cw = cl.w*W, ch = cl.h*H;
+      const lit = clamp(1 - Math.abs(cx-sunX)/(W*0.5)) * d;
+      const cloudCol = mix(darkCol, [130,64,32], lit*litMax);
+      const steps = 40;
+      for(let i=0;i<steps;i++){
+        const a = i/(steps-1);              // 0..1 along the streak
+        const along = (a-0.5);              // -0.5..0.5
+        // horizontal spread dominates; sculpt the top/bottom with noise
+        const nx = cx + along*cw*1.9 + (fbm(a*4+cl.seed, drift+cl.seed)-0.5)*cw*0.3;
+        const puff = fbm(a*5+cl.seed*1.7, drift*1.3+cl.seed);
+        const ny = cyBase + (puff-0.5)*ch*1.3;
+        // taper the ends of the streak
+        const taper = Math.pow(Math.cos(along*Math.PI),0.6);
+        const rr = (0.35+puff*0.9)*ch*1.15*(0.5+taper*0.7);
+        const grd=ctx.createRadialGradient(nx,ny,0,nx,ny,rr);
+        const al = cl.d*band*(0.10+lit*0.05)*taper;
+        grd.addColorStop(0,rgba(cloudCol,al));
+        grd.addColorStop(1,rgba(cloudCol,0));
+        ctx.fillStyle=grd;
+        ctx.beginPath(); ctx.arc(nx,ny,rr,0,7); ctx.fill();
+      }
+    }
+    for(const cl of cirrus) drawStreak(cl, 0.7, [40,32,40], 0.5);
+    for(const cl of clouds) drawStreak(cl, 1.0, [24,18,24], 0.85);
+
+    // small distant sailboat silhouette (like the photo, far left)
+    {
+      const bx=W*0.05, by=horizon-H*0.006, bs=H*0.02*(0.6+d*0.4);
+      ctx.fillStyle=`rgba(20,16,18,${0.5*clamp(d+0.15)})`;
+      ctx.beginPath();
+      ctx.moveTo(bx-bs*0.5,by); ctx.lineTo(bx+bs*0.5,by);
+      ctx.lineTo(bx+bs*0.2,by+bs*0.35); ctx.lineTo(bx-bs*0.25,by+bs*0.35);
+      ctx.closePath(); ctx.fill();
+      ctx.beginPath(); // sail
+      ctx.moveTo(bx,by); ctx.lineTo(bx,by-bs*1.4); ctx.lineTo(bx+bs*0.55,by); ctx.closePath(); ctx.fill();
+    }
+
+    // ===== SEA =====
+    const seaTopC = mix(seaBase(d), skyHorizon(d), 0.5);
+    const seaBotC = seaBase(d);
+    const sea = ctx.createLinearGradient(0,horizon,0,H*0.72);
+    sea.addColorStop(0, rgb(seaTopC));
+    sea.addColorStop(1, rgb(seaBotC));
+    ctx.fillStyle=sea;
+    ctx.fillRect(0,horizon,W,H*0.72-horizon);
+
+    // sun glitter path on the water (vertical shimmer under the sun)
+    ctx.globalCompositeOperation='lighter';
+    const glMax = H*0.72;
+    for(let y=horizon; y<glMax; y+=Math.max(2,DPR*1.4)){
+      const depth=(y-horizon)/(glMax-horizon);
+      const width = (0.02+depth*0.20)*W;
+      const shimmer = Math.pow(fbm(sunX*0.02, y*0.05 + time*1.4),2);
+      const flick = 0.5+0.5*Math.sin(time*6 + y*0.4 + shimmer*10);
+      const a = (0.12+d*0.5) * (1-depth*0.85) * shimmer * (0.5+flick*0.5) * (0.8+pulse*0.3);
+      if(a<=0.004) continue;
+      const gx=ctx.createLinearGradient(sunX-width,0,sunX+width,0);
+      gx.addColorStop(0,'rgba(255,150,40,0)');
+      gx.addColorStop(0.5,rgba([255,190,90],a));
+      gx.addColorStop(1,'rgba(255,150,40,0)');
+      ctx.fillStyle=gx;
+      ctx.fillRect(sunX-width,y,width*2,Math.max(2,DPR*1.6));
+    }
+    ctx.globalCompositeOperation='source-over';
+
+    // wave lines / breaking surf bands
+    const surfY = H*0.62;
+    for(let i=0;i<3;i++){
+      const wy = surfY + i*H*0.035;
+      ctx.strokeStyle=`rgba(${210+i*10},${200},${195},${(0.10+d*0.14)*(1-i*0.2)})`;
+      ctx.lineWidth=DPR*(1.6-i*0.3);
+      ctx.beginPath();
+      for(let x=0;x<=W;x+=6*DPR){
+        const yy=wy + Math.sin(x*0.012 + time*1.2 + i)*H*0.006 + (fbm(x*0.01,i+time*0.3)-0.5)*H*0.01;
+        x===0?ctx.moveTo(x,yy):ctx.lineTo(x,yy);
+      }
+      ctx.stroke();
+    }
+
+    // ===== WET SAND (reflective foreground) =====
+    const sandTop=H*0.72;
+    const sandFar = mix([120,96,84],[60,50,52],1-d);
+    const sandNear= mix([40,32,34],[18,16,20],1-d);
+    const sg=ctx.createLinearGradient(0,sandTop,0,H);
+    sg.addColorStop(0, rgb(sandFar));
+    sg.addColorStop(1, rgb(sandNear));
+    ctx.fillStyle=sg; ctx.fillRect(0,sandTop,W,H-sandTop);
+
+    // mirrored sky reflection on the wet sand
+    ctx.globalCompositeOperation='lighter';
+    const refl=ctx.createLinearGradient(0,sandTop,0,H);
+    refl.addColorStop(0, rgba(skyHorizon(d), 0.28+d*0.3));
+    refl.addColorStop(0.5, rgba(mix(skyHorizon(d),[120,60,30],0.5), 0.12+d*0.16));
+    refl.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle=refl; ctx.fillRect(0,sandTop,W,H-sandTop);
+
+    // reflected sun smear on the sand directly below the sun
+    const rsA=(0.06+d*0.4)*(0.8+pulse*0.3);
+    const rs=ctx.createRadialGradient(sunX,H*0.86,0,sunX,H*0.86,W*0.5);
+    rs.addColorStop(0,rgba([255,170,70],rsA));
+    rs.addColorStop(1,'rgba(255,120,40,0)');
+    ctx.fillStyle=rs; ctx.fillRect(0,sandTop,W,H-sandTop);
+    ctx.globalCompositeOperation='source-over';
+
+    // debris specks on the sand (like the photo foreground)
+    ctx.fillStyle=`rgba(12,10,12,${0.5*clamp(d+0.2)})`;
+    let ss=99;
+    const srnd=()=>(ss=(ss*1103515245+12345)&0x7fffffff)/0x7fffffff;
+    for(let i=0;i<90;i++){
+      const px=srnd()*W;
+      const py=sandTop+srnd()*(H-sandTop);
+      const depth=(py-sandTop)/(H-sandTop);
+      const sz=DPR*(0.6+srnd()*2.2)*(0.5+depth);
+      ctx.globalAlpha=(0.25+depth*0.5)*clamp(d+0.25);
+      ctx.beginPath(); ctx.arc(px,py,sz,0,7); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+
+    // ===== FOG / HAZE (moving veil — the "fogged surface") =====
+    ctx.globalCompositeOperation='screen';
+    const fogY=horizon;
+    const fogCol = mix([120,110,120],[200,150,120], d);
+    const layers=[{y:0.0,sp:0.02,a:0.10,sc:0.9},{y:0.05,sp:0.035,a:0.07,sc:1.6}];
+    for(const L of layers){
+      const off=time*L.sp;
+      for(let x=0;x<W;x+=Math.max(8,DPR*6)){
+        const n=fbm(x*0.004*L.sc+off, (fogY)*0.004 + off*0.5);
+        const h=(0.04+n*0.10)*H;
+        const yy=fogY - H*0.02 + L.y*H + Math.sin(x*0.01+time*0.4)*H*0.01;
+        ctx.fillStyle=rgba(fogCol, L.a*n*(0.6+d*0.6));
+        ctx.fillRect(x,yy-h,Math.max(8,DPR*6)+1,h*2);
+      }
+    }
+    ctx.globalCompositeOperation='source-over';
+
+    // ===== POST: bloom pulse, vignette, chroma, scanlines, grain =====
+    // subtle bloom breathing on the beat
+    ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle=rgba([90,40,20], 0.03+pulse*0.05*d);
+    ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation='source-over';
+
+    // vignette
+    const vig=ctx.createRadialGradient(W*0.5,H*0.46,H*0.2,W*0.5,H*0.55,H*0.9);
+    vig.addColorStop(0,'rgba(0,0,0,0)');
+    vig.addColorStop(1,`rgba(0,0,0,${0.42+ (1-d)*0.22})`);
+    ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
+
+    // faint scanlines (retro)
+    ctx.globalAlpha=0.05;
+    ctx.fillStyle='#000';
+    for(let y=0;y<H;y+=Math.max(2,Math.round(DPR*2))){ ctx.fillRect(0,y,W,1); }
+    ctx.globalAlpha=1;
+
+    // grain
+    if(grainOn && grainCv){
+      ctx.globalAlpha=0.05+ (1-d)*0.03;
+      ctx.globalCompositeOperation='overlay';
+      const gs=grainCv.width;
+      const ox=(Math.random()*gs)|0, oy=(Math.random()*gs)|0;
+      for(let y=-oy;y<H;y+=gs){ for(let x=-ox;x<W;x+=gs){ ctx.drawImage(grainCv,x,y); } }
+      ctx.globalCompositeOperation='source-over';
+      ctx.globalAlpha=1;
+    }
+
+    // update beat indicator
+    beatEl.style.background = `rgba(255,${100+pulse*120|0},${40+pulse*40|0},${0.35+pulse*0.65})`;
+    beatEl.style.boxShadow = `0 0 ${4+pulse*10}px rgba(255,120,40,${0.3+pulse*0.5}), 0 0 0 1px #3a2c22 inset`;
+  }
+
+  // ---- transport ----
+  const playBtn=document.getElementById('play');
+  const grainBtn=document.getElementById('grain');
+  const seek=document.getElementById('seek');
+  const tRead=document.getElementById('t');
+  const beatEl=document.getElementById('beat');
+
+  let playing=true, base=performance.now()/1000, clock=0, last=base;
+  function now(){ return performance.now()/1000; }
+
+  playBtn.onclick=()=>{
+    playing=!playing;
+    playBtn.textContent = playing? '❚❚ Pause':'▶ Play';
+    playBtn.classList.toggle('on',playing);
+    last=now();
+  };
+  grainBtn.onclick=()=>{ grainOn=!grainOn; grainBtn.classList.toggle('on',grainOn); };
+  seek.addEventListener('input',()=>{
+    clock=(+seek.value/1000)*LOOP; last=now();
+  });
+
+  function fmt(v){ return v.toFixed(1).padStart(4,'0'); }
+
+  function frame(){
+    const n=now();
+    if(playing){ clock += (n-last); }
+    last=n;
+    const c = ((clock%LOOP)+LOOP)%LOOP;
+    draw(c);
+    seek.value = (c/LOOP*1000)|0;
+    tRead.textContent = `${fmt(c)} / 20.0`;
+    requestAnimationFrame(frame);
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
