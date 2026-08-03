@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>01 · Chrome Sands — Imaginary Lands</title>
+<link rel="stylesheet" href="../../lib/visual-core.css">
+</head>
+<body>
+
+<!-- Scene: creamy liquid chrome (Floating Points direction — see CLAUDE.md).
+     Full-frame iterative domain-warped heightfield lit as polished metal.
+     Uses the engine prelude (fbm, IL_* palette, ambientPost) + standard uniforms. -->
+<script id="scene" type="x-shader/x-fragment">
+// iterative domain warp -> a few big sweeping metal folds (low freq = big folds)
+float heightField(vec2 p, float flow, float bass){
+  float warp = 1.7 + bass * 1.0;                 // fold depth breathes with the bass
+  vec2 w1 = vec2(fbm(p + vec2(0.0, flow)),
+                 fbm(p + vec2(5.2, 1.3) - flow*0.55));
+  vec2 w2 = vec2(fbm(p + 2.6*w1 + vec2(1.7, 9.2) + flow*0.35),
+                 fbm(p + 2.6*w1 + vec2(8.3, 2.8) - flow*0.20));
+  return fbm(p + warp*w2);
+}
+
+// faux chrome environment (what the metal reflects): near-black floor,
+// hot cream horizon band, cold-white key highlight
+vec3 env(vec3 rd){
+  float y = rd.y;
+  vec3 lower = vec3(0.002, 0.006, 0.018);
+  vec3 upper = vec3(0.02,  0.05,  0.12);
+  vec3 col = mix(lower, upper, smoothstep(-0.35, 0.7, y));
+  col += IL_WARMWHITE * exp(-abs(y - 0.015) * 10.0) * 1.7;        // hot horizon light band
+  col += vec3(0.55, 0.62, 0.72) * exp(-abs(y + 0.12) * 4.0) * 0.35; // soft bounce
+  float key = pow(max(dot(rd, normalize(vec3(-0.42, 0.34, 0.62))), 0.0), 40.0);
+  col += vec3(0.85, 0.93, 1.10) * key * 1.5;                       // cold-white key
+  return col;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;   // y in [-.5,.5], x aspect-correct
+  float bass = u_bass;
+
+  vec2  p = uv * 0.98;
+  float e = 0.02;
+  float hC = heightField(p,                 u_flow, bass);
+  float hL = heightField(p + vec2(-e, 0.0), u_flow, bass);
+  float hR = heightField(p + vec2( e, 0.0), u_flow, bass);
+  float hD = heightField(p + vec2(0.0,-e),  u_flow, bass);
+  float hU = heightField(p + vec2(0.0, e),  u_flow, bass);
+
+  float relief = 0.60 + bass * 0.38;                   // fold steepness breathes with the bass
+  vec2  grad   = vec2(hR - hL, hU - hD) / (2.0 * e);
+  vec3  N      = normalize(vec3(-grad * relief, 1.0));
+
+  vec3 V = normalize(vec3(0.0, 0.32, 1.0));            // camera looks slightly down the folds
+  vec3 L = normalize(vec3(-0.38, 0.46, 0.55));         // cold white key light
+  vec3 H = normalize(L + V);
+
+  vec3  R    = reflect(-V, N);
+  vec3  refl = env(R);
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 2.8);
+
+  vec3 body = mix(vec3(0.006,0.018,0.05), vec3(0.34,0.47,0.62), hC);  // creamy-blue base
+  vec3 col  = mix(body, refl, 0.58 + 0.42*fres);
+
+  float ndh   = max(dot(N, H), 0.0);
+  col += vec3(1.0, 0.97, 0.86) * pow(ndh, 42.0) * 1.7;  // blown cream specular
+  col += vec3(0.88, 0.92, 0.97) * pow(ndh, 7.0) * 0.55; // creamy satin sheen
+  col += vec3(0.08, 0.15, 0.28) * max(dot(N, L), 0.0) * 0.25; // cold diffuse fill
+
+  // luminous cream haze pooling toward the upper frame (light behind the drape)
+  float hazeY = smoothstep(-0.1, 0.5, uv.y);
+  col += vec3(0.85, 0.88, 0.82) * hazeY * hazeY * 0.14 * (0.6 + 0.6*fres);
+  col = mix(col, vec3(0.01,0.03,0.07), smoothstep(0.28, 0.5, uv.y) * 0.55); // near-black top
+
+  gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
+}
+</script>
+
+<script src="../../lib/visual-core.js"></script>
+<script>
+  Ambient.start({
+    title: 'CHROME SANDS',
+    subtitle: 'ambient techno · 01 · 4:3<br>點擊進入全螢幕 — 允許麥克風以隨低音起伏<br><span style="opacity:.6">(無訊號時預設 115&nbsp;BPM)</span>',
+    bpm: 115
+  });
+</script>
+</body>
+</html>

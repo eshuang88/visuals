@@ -1,0 +1,55 @@
+/* Imaginary Lands — shared visual engine styles.
+   4:3 stage, letterboxed on black. See CLAUDE.md. */
+
+:root { color-scheme: dark; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  background: #000; overflow: hidden;
+  font-family: -apple-system, "Helvetica Neue", "PingFang TC", "Microsoft JhengHei", sans-serif;
+}
+
+#wrap {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: #000;
+}
+
+/* 4:3 stage, letterboxed inside any window */
+#stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  width: min(100vw, calc(100vh * 4 / 3));
+  height: min(100vh, calc(100vw * 3 / 4));
+  background: #05070a;
+}
+canvas { display: block; width: 100%; height: 100%; }
+
+/* Start overlay (browsers require a gesture for fullscreen + mic) */
+#overlay {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 22px; cursor: pointer;
+  background: radial-gradient(120% 90% at 50% 40%, rgba(20,32,52,0.35), rgba(2,4,8,0.92));
+  color: #cdd2da; letter-spacing: 0.08em;
+  transition: opacity 0.9s ease;
+  -webkit-user-select: none; user-select: none;
+}
+#overlay .title { font-size: clamp(20px, 3.2vw, 40px); font-weight: 300; letter-spacing: 0.28em; opacity: 0.92; }
+#overlay .sub   { font-size: clamp(12px, 1.4vw, 16px); font-weight: 300; opacity: 0.6; text-align: center; line-height: 1.9; }
+#overlay .go {
+  margin-top: 8px; padding: 12px 30px; border: 1px solid rgba(180,196,222,0.4);
+  border-radius: 100px; font-size: clamp(12px,1.4vw,15px); letter-spacing: 0.2em;
+  opacity: 0.85; transition: all .3s ease;
+}
+#overlay:hover .go { border-color: rgba(210,222,240,0.85); opacity: 1; box-shadow: 0 0 40px rgba(120,150,200,0.22); }
+#overlay.hidden { opacity: 0; pointer-events: none; }
+
+#hud {
+  position: absolute; left: 16px; bottom: 14px; z-index: 5;
+  font-size: 11px; letter-spacing: 0.14em; color: rgba(180,196,222,0.35);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  pointer-events: none; transition: opacity 0.6s ease; opacity: 0;
+}
+#stage.showhud #hud { opacity: 1; }
+body.hidecursor, body.hidecursor * { cursor: none !important; }
