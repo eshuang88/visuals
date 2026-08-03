@@ -82,9 +82,10 @@ float snoise(vec2 v){
   g.yz=a0.yz*x12.xz+h.yz*x12.yw;
   return 130.0*dot(m,g);
 }
+/* smooth low-octave fbm — big soft thermal blobs */
 float fbm(vec2 p){
-  float a=0.5, s=0.0;
-  for(int i=0;i<5;i++){ s+=a*snoise(p); p=p*2.03+1.7; a*=0.5; }
+  float a=0.62, s=0.0;
+  for(int i=0;i<2;i++){ s+=a*snoise(p); p=p*2.05+1.7; a*=0.5; }
   return s*0.5+0.5;
 }
 float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
@@ -104,120 +105,138 @@ float sdTri(vec2 p, vec2 p0, vec2 p1, vec2 p2){
   return -sqrt(d.x)*sign(d.y);
 }
 
-/* block layout — evokes the hand-drawn maze (uv space, y up) */
-const int NB=7;
-vec4 boxAt(int i){
-  if(i==0) return vec4(0.26,0.805,0.20,0.145);   // top-left
-  if(i==1) return vec4(0.73,0.500,0.21,0.400);   // tall right
-  if(i==2) return vec4(0.345,0.470,0.125,0.230);  // middle square
-  if(i==3) return vec4(0.345,0.450,0.075,0.150);  // nested inner
-  if(i==4) return vec4(0.360,0.220,0.260,0.140);  // bottom stepped
-  if(i==5) return vec4(0.160,0.570,0.080,0.110);  // left strip
-  return          vec4(0.580,0.270,0.120,0.130);   // connector
+/* ============================================================
+   4 non-overlapping rectilinear tangram blocks (uv, y up)
+   each block = union of rects; returns SD (<0 inside)
+   ============================================================ */
+float blockSD(int id, vec2 p){
+  if(id==0){                                   // top-left: big panel + left step
+    float a=sdBox(p, vec2(0.295,0.795), vec2(0.250,0.160));
+    float b=sdBox(p, vec2(0.140,0.517), vec2(0.095,0.117));
+    return min(a,b);
+  }
+  if(id==1){                                   // right: tall panel
+    return sdBox(p, vec2(0.775,0.632), vec2(0.180,0.322));
+  }
+  if(id==2){                                   // centre panel
+    return sdBox(p, vec2(0.415,0.500), vec2(0.130,0.100));
+  }
+  return   sdBox(p, vec2(0.500,0.157), vec2(0.455,0.112)); // bottom bar
+}
+/* per-block "chrome-ness": 0 = deep-black field, 1 = creamy silver field */
+float blockChrome(int id){
+  if(id==0) return 0.90;   // top-left  : creamy chrome panel
+  if(id==1) return 0.05;   // right tall: deep black panel (big thermal blob)
+  if(id==2) return 0.70;   // centre    : silver panel
+  return 0.02;             // bottom bar: deep black panel
 }
 
-/* ---- gold thermal ramp ---- */
-vec3 goldRamp(float h){
+/* thermal ramp — black blocks read fire-on-black; chrome blocks stay silver
+   through the low/mid range and only warm to gold/white at the hot core */
+vec3 thermal(float h, float chrome){
   h=clamp(h,0.0,1.0);
-  vec3 c0=vec3(0.045,0.030,0.020);
-  vec3 c1=vec3(0.30,0.17,0.05);
-  vec3 c2=vec3(0.60,0.40,0.11);
-  vec3 c3=vec3(0.90,0.70,0.26);
-  vec3 c4=vec3(1.00,0.94,0.62);
-  vec3 c5=vec3(1.00,0.99,0.92);
+  vec3 c0=mix(vec3(0.050,0.037,0.028), vec3(0.60,0.62,0.66), chrome); // cold
+  vec3 c1=mix(vec3(0.26,0.09,0.05),    vec3(0.70,0.72,0.76), chrome); // deep red / silver
+  vec3 c2=mix(vec3(0.82,0.26,0.07),    vec3(0.82,0.84,0.88), chrome); // red-orange / bright silver
+  vec3 c3=mix(vec3(0.99,0.56,0.13),    vec3(0.94,0.93,0.94), chrome); // orange-gold / near-white silver
+  vec3 c4=vec3(1.00,0.80,0.30);   // gold      (shared hot)
+  vec3 c5=vec3(1.00,0.93,0.63);   // cream gold
+  vec3 c6=vec3(1.00,0.99,0.94);   // white hot
   vec3 c;
-  if(h<0.2)      c=mix(c0,c1,smoothstep(0.0,0.2,h));
-  else if(h<0.45)c=mix(c1,c2,smoothstep(0.2,0.45,h));
-  else if(h<0.65)c=mix(c2,c3,smoothstep(0.45,0.65,h));
-  else if(h<0.85)c=mix(c3,c4,smoothstep(0.65,0.85,h));
-  else           c=mix(c4,c5,smoothstep(0.85,1.0,h));
+  if(h<0.14)      c=mix(c0,c1,smoothstep(0.00,0.14,h));
+  else if(h<0.34) c=mix(c1,c2,smoothstep(0.14,0.34,h));
+  else if(h<0.52) c=mix(c2,c3,smoothstep(0.34,0.52,h));
+  else if(h<0.68) c=mix(c3,c4,smoothstep(0.52,0.68,h));
+  else if(h<0.84) c=mix(c4,c5,smoothstep(0.68,0.84,h));
+  else            c=mix(c5,c6,smoothstep(0.84,1.00,h));
   return c;
 }
-/* subtle temperature casts — gold stays dominant */
-vec3 tempTint(float t, float h){
-  vec3 c=vec3(1.0);
-  c=mix(c, vec3(0.45,0.68,1.25), smoothstep(0.60,0.9,1.0-t)*(1.0-h)*0.65); // cool blue
-  c=mix(c, vec3(1.35,0.55,0.42), smoothstep(0.72,0.96,t)*smoothstep(0.55,0.9,h)*0.6); // hot red
-  c=mix(c, vec3(0.55,1.20,0.72), smoothstep(0.46,0.54,t)*(1.0-abs(h-0.5)*1.5)*0.35); // green pocket
-  return c;
+
+/* smooth thermal field with looping domain-warp (seamless in uFlow) */
+float fieldH(vec2 P, float ph){
+  vec2 w = vec2(fbm(P + vec2(cos(ph),sin(ph))*0.50),
+                fbm(P + vec2(cos(ph*0.83+2.1),sin(ph*0.83+2.1))*0.46 + 4.3));
+  return fbm(P + 0.90*w);
 }
 
 void main(){
   vec2 uv = vUv;
-  float aa = fwidth(uv.x)*1.4;
-  float lw = 0.0052;                 // outline half-width
 
-  /* --- resolve which block owns this pixel (smallest containing => inner) --- */
-  float fill=0.0, owner=0.0, bestArea=1e9, edge=1e9;
-  for(int i=0;i<NB;i++){
-    vec4 b=boxAt(i);
-    float d=sdBox(uv,b.xy,b.zw);
-    fill=max(fill,1.0-smoothstep(0.0,aa,d));
-    if(d<0.0){ float area=b.z*b.w; if(area<bestArea){bestArea=area; owner=float(i);} }
-    edge=min(edge,abs(d));
+  /* ---- which of the 4 blocks owns this pixel ---- */
+  int   bid=-1;
+  float depth=0.0;          // interior depth (0 at edge, + inside)
+  float aa=fwidth(uv.x)*1.2;
+  float cover=0.0;
+  for(int i=0;i<4;i++){
+    float d=blockSD(i,uv);
+    cover=max(cover, 1.0-smoothstep(0.0,aa,d));
+    if(d<0.0){ bid=i; depth=-d; }
   }
-  /* etched triangle inside the tall-right block (outline only) */
-  float dt=sdTri(uv, vec2(0.72,0.78), vec2(0.60,0.56), vec2(0.85,0.56));
-  edge=min(edge, abs(dt));
 
-  /* --- thermal fluid metal (contained by fill mask) --- */
-  vec2 seed=vec2(owner*11.3, owner*7.7);
-  vec2 hp=uv*vec2(uAspect,1.0)*3.2 + seed;
-  float ph=uFlow;
-  vec2 c1v=vec2(cos(ph),sin(ph))*0.55;
-  float w1=fbm(hp+c1v);
-  vec2 hp2=hp+1.35*vec2(w1, fbm(hp+c1v+3.1));
-  vec2 c2v=vec2(cos(ph*0.73+1.7),sin(ph*0.73+1.7))*0.42;
-  float w2=fbm(hp2+c2v);
-  vec2 hp3=hp2+1.0*vec2(w2, fbm(hp2+c2v+6.2));
-  float heat=fbm(hp3);
-  float temp=fbm(hp3*0.6+20.0+vec2(cos(ph*0.4),sin(ph*0.4))*0.3);
-  heat=clamp(heat*1.18-0.06+uBass*0.24, 0.0, 1.0);
-  heat=mix(heat, smoothstep(0.05,0.95,heat), 0.35); // deepen molten valleys
-
-  vec3 fluid=goldRamp(heat);
-
-  /* creamy chrome streaks from heat-field normal */
-  float hx=dFdx(heat), hy=dFdy(heat);
-  vec3 nrm=normalize(vec3(-hx,-hy,0.06));
-  float ang=atan(nrm.y,nrm.x);
-  float chrome=pow(0.5+0.5*sin(ang*3.0+heat*10.0+ph*1.3),1.5);
-  vec3 cream=vec3(0.96,0.91,0.79);
-  fluid=mix(fluid, fluid*cream*(0.55+0.9*chrome), 0.34*smoothstep(0.30,0.80,heat));
-
-  /* temperature variety */
-  fluid=mix(fluid, fluid*tempTint(temp,heat), 0.30);
-
-  /* cold-white specular flicker on high-heat sheen */
-  float grad=length(vec2(hx,hy));
-  float sheen=smoothstep(0.0,0.16,grad);
-  fluid+=vec3(0.80,0.90,1.0)*sheen*chrome*(0.16+0.84*uFlick)*smoothstep(0.55,0.96,heat);
-
-  /* --- background: brown near-black --- */
-  vec3 bg=vec3(0.052,0.040,0.030);
-  bg*=0.78+0.22*fbm(uv*2.3+7.0);
+  /* ---- background: brown near-black between blocks ---- */
+  vec3 bg=vec3(0.050,0.038,0.029);
+  bg*=0.72+0.28*fbm(uv*2.2+7.0);
 
   vec3 col=bg;
-  col=mix(col, fluid, fill);
 
-  /* --- outline / chrome container rim --- */
-  float stroke=1.0-smoothstep(lw,lw+aa,edge);
-  float core=1.0-smoothstep(lw*0.35,lw*0.35+aa,edge);
-  vec3 dark=vec3(0.020,0.015,0.010);
-  vec3 cold=vec3(0.82,0.90,1.05);
-  vec3 strokeCol=mix(dark, cold, 0.18*uFlick);
-  strokeCol+=cold*core*(0.10+0.20*uFlick);
-  col=mix(col, strokeCol, stroke);
+  if(bid>=0){
+    float chrome=blockChrome(bid);
+    vec2 seed=vec2(float(bid)*17.3, float(bid)*11.9);
+    vec2 P=uv*vec2(uAspect,1.0)*1.35 + seed;
+    float ph=uFlow;
 
-  /* --- grain (softer in highlights) --- */
-  float g=hash21(uv*uRes+floor(uTime*48.0));
+    /* field + analytic gradient (2 extra taps) */
+    const float E=0.016;
+    float h  = fieldH(P, ph);
+    float hX = fieldH(P+vec2(E,0.0), ph);
+    float hY = fieldH(P+vec2(0.0,E), ph);
+
+    /* contrast + cold bias so blocks stay mostly dark/silver with a hot blob,
+       bass heat-pump, and fade to cold at the block edge (contained flow) */
+    float fade=smoothstep(0.0,0.05,depth);
+    float bassPump=uBass*0.14;
+    #define SHAPE(x) mix(0.015, clamp(((x)-0.55)*1.55+0.30+bassPump,0.0,1.0), fade)
+    h=SHAPE(h); hX=SHAPE(hX); hY=SHAPE(hY);
+
+    vec2 grad=vec2(hX-h,hY-h)/E;
+    float gh=length(grad);                 // field steepness -> thermal rim strength
+
+    /* chromatic dispersion across soft edges => glowing thermal contour rim */
+    float disp=0.10*smoothstep(0.0,1.1,gh);
+    vec3 cR=thermal(h+disp, chrome);
+    vec3 cB=thermal(h-disp, chrome);
+    vec3 cG=thermal(h,       chrome);
+    vec3 fluid=vec3(cR.r, cG.g, cB.b);
+
+    /* glowing rim accents (thermal-camera look), only on the steeper edges */
+    float edge=smoothstep(0.30,1.15,gh);
+    fluid += vec3(0.16,0.42,0.85)*edge*0.22*(0.6+0.4*uFlick); // cyan-blue halo
+    fluid += vec3(1.00,0.52,0.14)*edge*0.14;                  // warm orange kiss
+
+    /* creamy chrome sheen in hot smooth cores + cold-white flicker */
+    float hot=smoothstep(0.75,1.0,h);
+    fluid = mix(fluid, mix(fluid, vec3(1.0,0.97,0.90), 0.35), hot*(1.0-edge));
+    fluid += vec3(0.80,0.90,1.05)*hot*(1.0-edge)*0.14*uFlick;
+
+    col = mix(bg, fluid, cover);
+
+    /* etched triangle motif inside the tall-right block */
+    if(bid==1){
+      float dtri=abs(sdTri(uv, vec2(0.775,0.720), vec2(0.660,0.460), vec2(0.890,0.460)));
+      float tl=1.0-smoothstep(0.0018,0.0018+aa,dtri);
+      col=mix(col, vec3(0.80,0.88,1.02), tl*0.35);
+    }
+  }
+
+  /* ---- fine grain (subtle, softer in highlights) ---- */
+  float g=hash21(uv*uRes+floor(uTime*40.0));
   float lum=dot(col,vec3(0.299,0.587,0.114));
-  col+=(g-0.5)*0.040*mix(1.0,0.45,smoothstep(0.4,0.95,lum));
+  col+=(g-0.5)*0.030*mix(1.0,0.4,smoothstep(0.45,0.95,lum));
 
-  /* --- vignette + cool lift on bass --- */
-  float vig=smoothstep(1.15,0.28,length((uv-0.5)*vec2(1.06,1.0)));
-  col*=mix(0.70,1.0,vig);
-  col+=vec3(0.015,0.022,0.038)*uFlick*0.6;
+  /* ---- vignette + cool bass lift ---- */
+  float vig=smoothstep(1.18,0.30,length((uv-0.5)*vec2(1.05,1.0)));
+  col*=mix(0.74,1.0,vig);
+  col+=vec3(0.012,0.018,0.032)*uFlick*0.5;
 
   col=max(col,0.0);
   frag=vec4(col,1.0);
