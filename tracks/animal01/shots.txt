@@ -1,0 +1,23 @@
+# animal01 — shot list for the memory film (Zayn direction). See render.py.
+#
+# One line per shot, IN ORDER. Columns are pipe-separated:
+#
+#   file | dur | bright | sat | gamma
+#
+#   file    filename inside assets/  (.jpg/.jpeg/.png/.webp = photo; anything else = video)
+#   dur     seconds to hold a photo; for video use `full` (native length) or a number to trim
+#   bright  per-shot exposure trim, -0.3..0.3   (darken bright photos here). optional -> 0
+#   sat     per-shot saturation, ~0.8..1.0                                  optional -> 0.9
+#   gamma   per-shot gamma, ~0.85..1.1                                      optional -> 1.0
+#
+# To add a shot later: drop the file in assets/, add a line here, rerun `python3 render.py`.
+# Blank lines and #-comments are ignored. The global film grade / grain / projector
+# flicker lives in render.py and is applied to the whole timeline, so shots stay consistent.
+
+01-boston-terrier.jpg | 5.5 |  0.02 | 0.92 | 1.02
+02-balldog.jpg        | 5.5 | -0.10 | 0.85 | 0.92
+03-husky-stools.jpg   | 5.5 | -0.05 | 0.85 | 0.98
+04-person-dogs.jpg    | 5.5 | -0.05 | 0.85 | 0.97
+05-two-dogs-sun.jpg   | 5.5 | -0.12 | 0.82 | 0.90
+06-dalmatian.jpg      | 5.5 |  0.00 | 0.90 | 1.00
+07-la_squirrel.MOV    | full | -0.04 | 0.85 | 1.00

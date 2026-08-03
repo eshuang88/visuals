@@ -1,2 +1,3 @@
 dist/
+tracks/*/out/
 .DS_Store
