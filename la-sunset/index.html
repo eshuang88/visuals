@@ -178,16 +178,18 @@
   // Palette keyed to the photo: warm saturated horizon, grey-blue upper sky,
   // deep void at night.  d = "daylight/warmth" 0..1
   function skyTop(d){
-    // night slate-teal -> dusk grey-blue -> sunset warm grey
-    const night=[14,16,22], dusk=[70,72,86], warm=[150,120,96];
+    // moonlit slate-blue -> dusk grey-blue -> sunset warm grey
+    const night=[26,34,52], dusk=[74,76,90], warm=[150,120,96];
     return d<0.5 ? mix(night,dusk,d*2) : mix(dusk,warm,(d-0.5)*2);
   }
   function skyHorizon(d){
-    const night=[24,18,20], ember=[196,72,20], blaze=[255,150,40];
+    // keep a soft cool moon-band at night (never fully black)
+    const night=[44,50,66], ember=[196,72,20], blaze=[255,150,40];
     return d<0.55 ? mix(night,ember,smooth(0,.55,d)) : mix(ember,blaze,smooth(.55,1,d));
   }
   function seaBase(d){
-    const night=[10,14,20], dusk=[40,44,58], warm=[92,86,92];
+    // cool moonlit water at night
+    const night=[22,30,44], dusk=[44,48,62], warm=[92,86,92];
     return d<0.5 ? mix(night,dusk,d*2) : mix(dusk,warm,(d-0.5)*2);
   }
 
@@ -241,10 +243,29 @@
     const horizon = H*0.44;
     const sunR = W*0.052;
 
+    // ---- handheld camera shake (drift + fast micro jitter + beat kick) ----
+    const kick = Math.exp(-beatFrac*9);                 // sharp impulse each beat
+    const camX = (fbm(time*0.6,1.3)-0.5)*W*0.014
+               + (fbm(time*9,2.0)-0.5)*W*0.005;
+    const camY = (fbm(time*0.6,7.7)-0.5)*H*0.014
+               + (fbm(time*9,5.0)-0.5)*H*0.005
+               + kick*H*0.007;                          // jolt to the beat
+    const camRot = (fbm(time*0.5,3.1)-0.5)*0.012
+               + (fbm(time*8,9.0)-0.5)*0.004;
+
     // sun travels vertically through the horizon. At e=1 it sits ON the horizon
-    // (half-sunk), at e=0 it is well below the sea.
-    const sunX = W*0.47;
-    const sunY = horizon + (1-e)*H*0.20 - (e-0.5)*H*0.02;
+    // (half-sunk), at e=0 it is well below the sea. Add its own wobble on top.
+    const sunWobX = (fbm(time*1.1,21)-0.5)*W*0.010 + Math.sin(bp*Math.PI*2)*W*0.004*d;
+    const sunWobY = (fbm(time*1.3,29)-0.5)*H*0.012 + kick*H*0.006*d;
+    const sunX = W*0.47 + sunWobX;
+    const sunY = horizon + (1-e)*H*0.20 - (e-0.5)*H*0.02 + sunWobY;
+
+    // ---- open handheld transform (overscan so edges never reveal bg) ----
+    ctx.save();
+    ctx.translate(W/2, H/2);
+    ctx.scale(1.06, 1.06);
+    ctx.rotate(camRot);
+    ctx.translate(-W/2 + camX, -H/2 + camY);
 
     // ===== SKY =====
     const gTop = skyTop(d), gHor = skyHorizon(d);
@@ -277,19 +298,43 @@
     ctx.fillRect(0,0,W,horizon+2);
     ctx.globalCompositeOperation='source-over';
 
-    // ===== SUN DISC =====
-    if (sunY < horizon + sunR*1.2 && d>0.02){
-      const discA = clamp(0.35+d*0.8);
-      const sd = ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,sunR);
-      sd.addColorStop(0, rgba([255,248,222],discA));
-      sd.addColorStop(0.6, rgba([255,214,120],discA));
-      sd.addColorStop(1, rgba([255,150,50],discA*0.7));
+    // ===== MOON (cool glow, strongest in the void) =====
+    const m = clamp(1-d);                 // 0 by day, 1 at night
+    const moonX = W*0.72, moonY = H*0.15;
+    if(m>0.02){
+      ctx.globalCompositeOperation='lighter';
+      const mR=W*0.13;
+      const mg=ctx.createRadialGradient(moonX,moonY,0,moonX,moonY,mR);
+      mg.addColorStop(0, rgba([214,226,255], 0.42*m));
+      mg.addColorStop(0.4, rgba([150,175,220], 0.16*m));
+      mg.addColorStop(1,'rgba(120,150,200,0)');
+      ctx.fillStyle=mg; ctx.fillRect(0,0,W,horizon);
+      const cR=W*0.02;
+      const core=ctx.createRadialGradient(moonX,moonY,0,moonX,moonY,cR);
+      core.addColorStop(0,rgba([236,242,255],0.7*m));
+      core.addColorStop(1,'rgba(200,215,245,0)');
+      ctx.fillStyle=core; ctx.beginPath(); ctx.arc(moonX,moonY,cR,0,7); ctx.fill();
+      ctx.globalCompositeOperation='source-over';
+    }
+
+    // ===== SUN — soft blurred core, no hard circle =====
+    if (sunY < horizon + sunR*1.6 && d>0.02){
+      const discA = clamp(0.30+d*0.7);
+      const R = sunR*1.7;
+      const sd = ctx.createRadialGradient(sunX,sunY,0,sunX,sunY,R);
+      sd.addColorStop(0,   rgba([255,250,234],discA));
+      sd.addColorStop(0.32, rgba([255,226,152],discA*0.8));
+      sd.addColorStop(0.62, rgba([255,162,62], discA*0.4));
+      sd.addColorStop(1,   'rgba(255,140,50,0)');    // fades out — no edge
       ctx.save();
       ctx.beginPath();
-      ctx.rect(0,0,W,horizon);          // clip to above the sea (sun sinks in)
-      ctx.clip();
+      ctx.rect(0,0,W,horizon+sunR*0.12); ctx.clip();  // waterline (sun sinks in)
+      ctx.filter = `blur(${Math.max(1,sunR*0.42)}px)`;
+      ctx.globalCompositeOperation='lighter';
+      // heat-haze vertical smear so it never reads as a disc
+      ctx.translate(sunX,sunY); ctx.scale(1.0,1.12); ctx.translate(-sunX,-sunY);
       ctx.fillStyle=sd;
-      ctx.beginPath(); ctx.arc(sunX,sunY,sunR,0,7); ctx.fill();
+      ctx.beginPath(); ctx.arc(sunX,sunY,R,0,7); ctx.fill();
       ctx.restore();
     }
 
@@ -363,11 +408,30 @@
     }
     ctx.globalCompositeOperation='source-over';
 
-    // wave lines / breaking surf bands
+    // moonlit shimmer on the water (cool, present through the night)
+    if(m>0.02){
+      ctx.globalCompositeOperation='lighter';
+      for(let y=horizon; y<glMax; y+=Math.max(3,DPR*2)){
+        const depth=(y-horizon)/(glMax-horizon);
+        const width=(0.015+depth*0.12)*W;
+        const shimmer=Math.pow(fbm(moonX*0.02, y*0.06+time*1.1),2);
+        const flick=0.5+0.5*Math.sin(time*5 + y*0.5);
+        const a=m*0.20*(1-depth*0.8)*shimmer*(0.5+flick*0.5)*(0.8+pulse*0.3);
+        if(a<=0.004) continue;
+        const gx=ctx.createLinearGradient(moonX-width,0,moonX+width,0);
+        gx.addColorStop(0,'rgba(150,180,230,0)');
+        gx.addColorStop(0.5,rgba([202,220,255],a));
+        gx.addColorStop(1,'rgba(150,180,230,0)');
+        ctx.fillStyle=gx; ctx.fillRect(moonX-width,y,width*2,Math.max(2,DPR*2));
+      }
+      ctx.globalCompositeOperation='source-over';
+    }
+
+    // wave lines / breaking surf bands (cool + brighter under moonlight)
     const surfY = H*0.62;
     for(let i=0;i<3;i++){
       const wy = surfY + i*H*0.035;
-      ctx.strokeStyle=`rgba(${210+i*10},${200},${195},${(0.10+d*0.14)*(1-i*0.2)})`;
+      ctx.strokeStyle=`rgba(${(180+i*10+60*d)|0},${(196+40*m)|0},${(200+50*m)|0},${(0.10+d*0.14+m*0.13)*(1-i*0.2)})`;
       ctx.lineWidth=DPR*(1.6-i*0.3);
       ctx.beginPath();
       for(let x=0;x<=W;x+=6*DPR){
@@ -400,6 +464,14 @@
     rs.addColorStop(0,rgba([255,170,70],rsA));
     rs.addColorStop(1,'rgba(255,120,40,0)');
     ctx.fillStyle=rs; ctx.fillRect(0,sandTop,W,H-sandTop);
+    // cool moon reflection on the wet sand at night
+    if(m>0.02){
+      const mrA=m*0.18*(0.85+pulse*0.2);
+      const mr=ctx.createRadialGradient(moonX,H*0.84,0,moonX,H*0.84,W*0.45);
+      mr.addColorStop(0,rgba([190,210,255],mrA));
+      mr.addColorStop(1,'rgba(150,180,230,0)');
+      ctx.fillStyle=mr; ctx.fillRect(0,sandTop,W,H-sandTop);
+    }
     ctx.globalCompositeOperation='source-over';
 
     // debris specks on the sand (like the photo foreground)
@@ -433,17 +505,32 @@
     }
     ctx.globalCompositeOperation='source-over';
 
-    // ===== POST: bloom pulse, vignette, chroma, scanlines, grain =====
+    // ---- close handheld transform (post fx sit on the fixed "lens") ----
+    ctx.restore();
+
+    // ===== POST: flicker, bloom pulse, vignette, scanlines, grain =====
+    // exposure flicker — handheld-video wobble, kicked by the 115 BPM beat
+    const flick = (fbm(time*26,41)-0.5)*0.06 + kick*0.05 + Math.sin(bp*Math.PI*2)*0.02;
+    if(flick>=0){
+      ctx.globalCompositeOperation='lighter';
+      ctx.fillStyle=rgba([255,210,150], flick*0.9);
+    }else{
+      ctx.globalCompositeOperation='multiply';
+      ctx.fillStyle=`rgba(${(30)|0},${(24)|0},${(28)|0},${-flick*1.4})`;
+    }
+    ctx.fillRect(0,0,W,H);
+    ctx.globalCompositeOperation='source-over';
+
     // subtle bloom breathing on the beat
     ctx.globalCompositeOperation='lighter';
     ctx.fillStyle=rgba([90,40,20], 0.03+pulse*0.05*d);
     ctx.fillRect(0,0,W,H);
     ctx.globalCompositeOperation='source-over';
 
-    // vignette
+    // vignette — lighter at night so moonlight keeps the frame alive
     const vig=ctx.createRadialGradient(W*0.5,H*0.46,H*0.2,W*0.5,H*0.55,H*0.9);
     vig.addColorStop(0,'rgba(0,0,0,0)');
-    vig.addColorStop(1,`rgba(0,0,0,${0.42+ (1-d)*0.22})`);
+    vig.addColorStop(1,`rgba(4,6,12,${0.30+d*0.10})`);
     ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
 
     // faint scanlines (retro)
