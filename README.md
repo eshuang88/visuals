@@ -3,7 +3,10 @@
 Ambient-techno live visuals. One WebGL piece per track — 4:3, fullscreen,
 seamless, audio-reactive (mic bass with a per-track BPM fallback).
 
-**Read [`CLAUDE.md`](./CLAUDE.md) for the visual system and conventions.**
+**The visual bible.** [`Imaginary_Lands_Visual_Reference_Report.html`](./Imaginary_Lands_Visual_Reference_Report.html)
+is the illustrated reference every song follows — both the generative/shader half
+and the lived-footage half (open it in a browser). [`CLAUDE.md`](./CLAUDE.md) is
+its text companion — the system + conventions a Claude Code session reads.
 
 ## Run
 
