@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Imaginary Lands — Concert Player (prototype)</title>
+<link rel="stylesheet" href="lib/visual-core.css">
+<link rel="stylesheet" href="lib/player.css">
+</head>
+<body>
+
+<!-- =====================================================================
+     Imaginary Lands — live concert PLAYER prototype.
+
+     One page, one WebGL context, a playlist of scene shaders. Runs the whole
+     set from the keyboard, offline from file:// — no VJ software, no network.
+
+     Prototype set order (assumed 115 BPM, 4:3, per the brief):
+        01 Chrome Sands   — real track-01 shader (liquid chrome, Floating Points)
+        02 Marble Gold    — warm marbled liquid metal (deliberate warm variant)
+        03 Animal Loop    — soft breathing memory film (Ariana direction)
+        04 LA Sunset      — threshold / warm fog sunset (Moonvoid direction)
+
+     Chrome Sands is the actual shipping shader. Marble Gold / Animal Loop /
+     LA Sunset are compact stand-ins here (the repo's real 02 & 05 are iPhone
+     footage, and 04 uses a heavier second engine) so the prototype stays a
+     small, single, pure-WebGL file that shows the PLAYER working. Any track
+     written for lib/visual-core.js drops straight into the `tracks` array.
+
+     Every scene shader may use the engine prelude directly (see CLAUDE.md):
+       uniforms u_res u_time u_bass u_flow u_beat ; helpers hash/vnoise/fbm ;
+       IL_* palette ; and must end with ambientPost(col, gl_FragCoord.xy, u_bass).
+     ===================================================================== -->
+
+<script src="lib/visual-core.js"></script>
+<script src="lib/player-core.js"></script>
+<script>
+/* ------------------------------------------------------------------ 01 */
+/* Chrome Sands — verbatim from tracks/01-chrome-sands (30 s seamless loop,
+   creamy liquid chrome, Floating Points direction). */
+var SCENE_CHROME = `
+#define TAU  6.28318530718
+#define LOOP 30.0
+
+float weather(vec2 p, float ph){
+  vec2 c = 0.5 * vec2(cos(ph), sin(ph));
+  return fbm(p * 0.7 + c + vec2(3.3, 1.1));
+}
+float heightField(vec2 p, float ph, float bass){
+  vec2 c1 = vec2(cos(ph),           sin(ph));
+  vec2 c2 = vec2(cos(2.0*ph + 1.3), sin(2.0*ph + 0.7));
+  vec2 c3 = vec2(cos(3.0*ph - 0.5), sin(3.0*ph + 2.1));
+  float warp = 1.65 + bass * 1.05;
+  vec2 w1 = vec2(fbm(p + 0.55*c1),
+                 fbm(p + 0.55*c1 + vec2(5.2, 1.3)));
+  vec2 w2 = vec2(fbm(p + 2.6*w1 + 0.42*c2 + vec2(1.7, 9.2)),
+                 fbm(p + 2.6*w1 + 0.42*c2 + vec2(8.3, 2.8)));
+  return fbm(p + warp*w2 + 0.30*c3);
+}
+vec3 env(vec3 rd, float mood){
+  float y = rd.y;
+  vec3 lower = mix(vec3(0.002, 0.006, 0.020),
+                   vec3(0.004, 0.010, 0.030), mood);
+  vec3 upper = mix(vec3(0.020, 0.050, 0.120),
+                   vec3(0.028, 0.060, 0.165), mood);
+  vec3 col = mix(lower, upper, smoothstep(-0.35, 0.7, y));
+  vec3 band = mix(IL_WARMWHITE, mix(IL_WARMWHITE, IL_ICE, 0.32), mood);
+  col += band * exp(-abs(y - 0.015) * 10.0) * 1.7;
+  col += mix(vec3(0.55, 0.62, 0.72), vec3(0.47, 0.60, 0.80), mood)
+         * exp(-abs(y + 0.12) * 4.0) * 0.35;
+  float key = pow(max(dot(rd, normalize(vec3(-0.42, 0.34, 0.62))), 0.0), 40.0);
+  col += mix(vec3(0.85, 0.93, 1.10), vec3(0.80, 0.90, 1.18), mood) * key * 1.5;
+  return col;
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;
+  float bass = u_bass;
+  float ph    = TAU * u_time / LOOP;
+  float mood  = 0.5 + 0.5 * sin(ph);
+  float mood2 = 0.5 + 0.5 * sin(2.0*ph + 1.0);
+  float ef      = sin(ph*7.0 + 1.3) + 0.7*sin(ph*11.0 + 2.1) + 0.5*sin(ph*17.0);
+  float specShim = 0.78 + 0.22 * sin(ph*19.0);
+  vec2  p = uv * 0.98;
+  float e = 0.02;
+  float hC = heightField(p,                 ph, bass);
+  float hL = heightField(p + vec2(-e, 0.0), ph, bass);
+  float hR = heightField(p + vec2( e, 0.0), ph, bass);
+  float hD = heightField(p + vec2(0.0,-e),  ph, bass);
+  float hU = heightField(p + vec2(0.0, e),  ph, bass);
+  float relief = 0.60 + bass * 0.38;
+  vec2  grad   = vec2(hR - hL, hU - hD) / (2.0 * e);
+  vec3  N      = normalize(vec3(-grad * relief, 1.0));
+  vec3 V = normalize(vec3(0.0, 0.32, 1.0));
+  vec3 L = normalize(vec3(-0.38, 0.46, 0.55));
+  vec3 H = normalize(L + V);
+  vec3  R    = reflect(-V, N);
+  vec3  refl = env(R, mood);
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 2.8);
+  float tf = weather(p * 1.3 + 7.0, ph);
+  vec3 bodyHi = mix(vec3(0.30, 0.44, 0.62),
+                    vec3(0.24, 0.42, 0.68), tf);
+  vec3 body = mix(vec3(0.006, 0.018, 0.05), bodyHi, hC);
+  vec3 col  = mix(body, refl, 0.58 + 0.42*fres);
+  float ndh = max(dot(N, H), 0.0);
+  col += vec3(1.0, 0.97, 0.86) * pow(ndh, 42.0) * 1.7 * (specShim + 0.18*sin(ph*23.0 + hC*28.0));
+  col += vec3(0.88, 0.92, 0.97) * pow(ndh, 7.0) * 0.55;
+  col += vec3(0.08, 0.15, 0.28) * max(dot(N, L), 0.0) * 0.25;
+  float tw1 = vnoise(p * 6.5  + vec2(cos(7.0*ph)*2.0, sin(5.0*ph)*2.0) + 11.0);
+  float tw2 = vnoise(p * 11.0 + vec2(sin(9.0*ph)*2.5, cos(6.0*ph)*2.5) + 4.0);
+  float crest = smoothstep(0.52, 0.92, hC);
+  float glint = smoothstep(0.66, 0.98, tw1) * smoothstep(0.60, 0.97, tw2);
+  col += vec3(0.86, 0.92, 1.0) * glint * crest * (0.26 + 0.60*bass) * (0.9 + 0.3*mood2);
+  float hazeY = smoothstep(-0.1, 0.5, uv.y);
+  float pool  = mix(0.75, 1.25, tf);
+  col += vec3(0.85, 0.88, 0.82) * hazeY * hazeY * 0.14 * pool * (0.6 + 0.6*fres);
+  col = mix(col, vec3(0.01, 0.03, 0.07), smoothstep(0.28, 0.5, uv.y) * 0.55);
+  col *= 1.0 + 0.045*ef + 0.10*bass;
+  float sweepX  = sin(ph*2.0) * 0.75;
+  float leak    = exp(-pow((uv.x - sweepX) / 0.20, 2.0));
+  float leakAmt = smoothstep(0.55, 1.0, sin(ph*3.0 + 0.7));
+  col += IL_WARMWHITE * leak * leakAmt * 0.09 * (0.7 + 0.8*bass);
+  gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
+}
+`;
+
+/* ------------------------------------------------------------------ 02 */
+/* Marble Gold — warm marbled liquid metal. Deliberate warm palette variant
+   (bronze/gold body, cold-white sheen). Seamless: all flow enters via
+   continuous circular offsets of the accumulated drift, so there is no loop
+   seam. u_bass swells the relief and the sheen. */
+var SCENE_MARBLE = `
+vec3 goldRamp(float h){
+  h = clamp(h, 0.0, 1.0);
+  vec3 c0 = vec3(0.040, 0.028, 0.018);
+  vec3 c1 = vec3(0.300, 0.170, 0.050);
+  vec3 c2 = vec3(0.620, 0.400, 0.120);
+  vec3 c3 = vec3(0.920, 0.720, 0.300);
+  vec3 c4 = vec3(1.000, 0.950, 0.720);
+  vec3 col = mix(c0, c1, smoothstep(0.00, 0.35, h));
+  col = mix(col, c2, smoothstep(0.30, 0.60, h));
+  col = mix(col, c3, smoothstep(0.55, 0.80, h));
+  col = mix(col, c4, smoothstep(0.78, 1.00, h));
+  return col;
+}
+float heat(vec2 p, float ph, float bass){
+  vec2 c1 = 0.55 * vec2(cos(ph),           sin(ph));
+  vec2 c2 = 0.42 * vec2(cos(ph*0.73 + 1.7), sin(ph*0.73 + 1.7));
+  float w1 = fbm(p + c1);
+  vec2  p2 = p + 1.35 * vec2(w1, fbm(p + c1 + 3.1));
+  float w2 = fbm(p2 + c2);
+  vec2  p3 = p2 + 1.0 * vec2(w2, fbm(p2 + c2 + 6.2));
+  float h  = fbm(p3);
+  h = clamp(h * 1.18 - 0.05 + bass * 0.22, 0.0, 1.0);
+  return mix(h, smoothstep(0.05, 0.95, h), 0.35);
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;
+  float bass = u_bass;
+  float ph = u_flow * 6.0;                       // continuous churn (seamless)
+  vec2  p  = uv * 2.6 + 6.0;
+
+  float e  = 0.014;
+  float hC = heat(p,                 ph, bass);
+  float hR = heat(p + vec2(e, 0.0),  ph, bass);
+  float hL = heat(p - vec2(e, 0.0),  ph, bass);
+  float hU = heat(p + vec2(0.0, e),  ph, bass);
+  float hD = heat(p - vec2(0.0, e),  ph, bass);
+  float relief = 0.55 + bass * 0.40;
+  vec2  grad   = vec2(hR - hL, hU - hD) / (2.0 * e);
+  vec3  N      = normalize(vec3(-grad * relief, 1.0));
+
+  vec3 col = goldRamp(hC);
+
+  // creamy chrome streaks from the heat-field normal direction
+  float ang    = atan(N.y, N.x);
+  float chrome = pow(0.5 + 0.5*sin(ang*3.0 + hC*10.0 + ph*0.3), 1.5);
+  vec3  cream  = vec3(0.97, 0.92, 0.80);
+  col = mix(col, col * cream * (0.55 + 0.9*chrome), 0.30 * smoothstep(0.30, 0.80, hC));
+
+  // warm cream specular sheen — a non-metronomic flicker instrument. Kept warm
+  // and gentle (no cold blue) to hold the low-saturation house rule.
+  float sheen = smoothstep(0.0, 0.16, length(grad) * 0.5);
+  float flick = 0.25 + 0.55 * (0.5 + 0.5*sin(ph*3.1) + 0.25*sin(ph*5.3)) * (0.5 + 0.5*bass);
+  col += vec3(0.98, 0.95, 0.86) * sheen * chrome * flick * 0.55 * smoothstep(0.55, 0.96, hC);
+
+  // deep molten valleys keep a faint bronze glow
+  col += vec3(0.30, 0.14, 0.03) * smoothstep(0.40, 0.0, hC) * 0.15;
+
+  // exposure flutter (few %), plus bass lift
+  float ef = sin(ph*1.7 + 1.3) + 0.7*sin(ph*2.9);
+  col *= 1.0 + 0.045*ef + 0.10*bass;
+
+  // hue-preserving highlight rolloff: keep every channel under ~1 so the house
+  // cold S-grade in ambientPost can't invert blown warm highlights toward blue.
+  col /= 1.0 + 0.35 * max(max(col.r, col.g), col.b);
+
+  gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
+}
+`;
+
+/* ------------------------------------------------------------------ 03 */
+/* Animal Loop — soft breathing memory film (Ariana direction): an anonymous
+   blurred form drifting in warm monochrome, halation + bloom, low saturation,
+   long holds. Breathing lags the beat (emotion sync, not beat sync). */
+var SCENE_ANIMAL = `
+void main(){
+  vec2 uv = gl_FragCoord.xy / u_res;
+  vec2 p  = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;
+  float bass = u_bass;
+  float ph = u_flow * 2.0;                        // very slow drift
+
+  // a vague anonymous form whose centre wanders
+  vec2  c    = 0.26 * vec2(sin(ph*0.6), cos(ph*0.5)) + vec2(0.02, 0.05*sin(ph*0.3));
+  float body = fbm(p*1.4 + c + vec2(3.0));
+  float form = smoothstep(0.35, 0.85, body + 0.10*sin(ph*0.7));
+  float breath = 0.5 + 0.5*sin(u_beat*0.25);      // slow, lags the tempo
+  float d = length((p - c) * vec2(1.0, 1.25));
+  float figure = smoothstep(0.95, 0.12, d) * (0.6 + 0.4*form);
+  figure *= (0.82 + 0.15*breath + 0.20*bass);
+
+  // warm monochrome: violet-black shadows -> warm-white highlights
+  vec3 shadow = mix(IL_BLACK, IL_VIOLET*0.5, 0.4);
+  vec3 lo  = mix(shadow, IL_BLUE*0.6, 0.30);
+  vec3 col = mix(lo, IL_WARMWHITE, figure);
+
+  // halation / bloom around bright areas + a faint warm edge
+  float glow = smoothstep(0.40, 1.0, figure);
+  col += IL_WARMWHITE * glow*glow * 0.25;
+  col += IL_EMBER     * glow      * 0.05;
+
+  // exposure breathing (texture flicker), non-metronomic
+  float ef = sin(ph*1.1) + 0.6*sin(ph*1.9 + 1.0);
+  col *= 0.92 + 0.06*ef + 0.10*bass;
+
+  // keep saturation low (house rule)
+  float l = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(l), col, 0.72);
+
+  gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
+}
+`;
+
+/* ------------------------------------------------------------------ 04 */
+/* LA Sunset — threshold / warm fog (Moonvoid direction): a warm sunset
+   gradient with a low soft sun glow and drifting dirty fog bands. Focus and
+   pooling wander; nothing keyed to absolute time, so it is seamless. */
+var SCENE_SUNSET = `
+void main(){
+  vec2 uv = gl_FragCoord.xy / u_res;
+  vec2 p  = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;
+  float bass = u_bass;
+  float ph = u_flow * 2.5;
+  float y = uv.y;
+
+  // vertical sunset gradient: warm haze low -> violet -> cool blue high
+  vec3 skyLo  = mix(IL_EMBER,      IL_WARMWHITE, 0.35);
+  vec3 skyMid = mix(IL_EMBER*0.8,  IL_VIOLET,    0.55);
+  vec3 skyHi  = mix(IL_VIOLET*0.7, IL_BLUE*0.8,  0.60);
+  vec3 col = mix(skyLo, skyMid, smoothstep(0.15, 0.55, y));
+  col = mix(col, skyHi, smoothstep(0.50, 1.00, y));
+
+  // soft low sun glow (below centre), haze pool drifts a little
+  vec2  sun = vec2(0.10*sin(ph*0.3), -0.16 + 0.02*sin(ph*0.5));
+  float sd  = length((p - sun) * vec2(1.0, 1.6));
+  col += mix(IL_WARMWHITE, IL_EMBER, 0.4) * exp(-sd*3.2) * (0.6 + 0.4*bass);
+  col += IL_EMBER * exp(-sd*1.2) * 0.15;
+
+  // drifting fog bands — dirty low-res atmosphere
+  float fog  = fbm(vec2(p.x*1.2 + ph*0.20, p.y*2.5 - ph*0.15));
+  float fog2 = fbm(vec2(p.x*0.8 - ph*0.10, p.y*1.6 + 5.0));
+  float haze = 0.5*fog + 0.5*fog2;
+  col = mix(col, mix(col, IL_WARMWHITE, 0.5), smoothstep(0.45, 0.9, haze) * (0.35 + 0.20*(1.0 - y)));
+  col = mix(col, IL_GRAPHITE*0.6, smoothstep(0.35, 0.0, y) * 0.40 * haze);
+
+  // exposure breathing + bass lift
+  float ef = sin(ph*1.3) + 0.6*sin(ph*2.1 + 1.0);
+  col *= 0.95 + 0.05*ef + 0.10*bass;
+
+  // keep saturation low
+  float l = dot(col, vec3(0.299, 0.587, 0.114));
+  col = mix(vec3(l), col, 0.80);
+
+  gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
+}
+`;
+
+/* ------------------------------------------------------------------ set */
+AmbientPlayer.start({
+  title: 'IMAGINARY LANDS',
+  start: 0,
+  tracks: [
+    { title: 'CHROME SANDS', bpm: 115, scene: SCENE_CHROME },
+    { title: 'MARBLE GOLD',  bpm: 115, scene: SCENE_MARBLE },
+    { title: 'ANIMAL LOOP',  bpm: 115, scene: SCENE_ANIMAL },
+    { title: 'LA SUNSET',    bpm: 115, scene: SCENE_SUNSET }
+  ]
+});
+</script>
+</body>
+</html>
