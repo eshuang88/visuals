@@ -41,7 +41,8 @@ function read(trackDir, rel) {
 const arg = process.argv[2];
 const list = arg ? [arg]
   : fs.readdirSync(TRACKS).filter(d =>
-      !d.startsWith('_') && fs.statSync(path.join(TRACKS, d)).isDirectory());
+      !d.startsWith('_') && fs.statSync(path.join(TRACKS, d)).isDirectory()
+      && fs.existsSync(path.join(TRACKS, d, 'index.html'))); // skip render-only tracks
 
 if (!list.length) { console.error('no tracks to build'); process.exit(1); }
 list.forEach(flatten);

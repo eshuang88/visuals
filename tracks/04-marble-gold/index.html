@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>IMAGINARY LANDS — Marble Gold Visual</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;}
+  canvas{display:block;background:#000;}
+  #ui{
+    position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 45%, rgba(30,22,10,.6), rgba(0,0,0,.94));
+    color:#e9e2cf;font-family:"Helvetica Neue",Arial,sans-serif;letter-spacing:.18em;
+    z-index:10;cursor:pointer;text-align:center;transition:opacity .6s ease;
+  }
+  #ui h1{font-size:clamp(20px,4vw,44px);font-weight:800;margin:0 0 .3em;
+    background:linear-gradient(180deg,#fff8e0,#d9b04a 60%,#8a6a1e);
+    -webkit-background-clip:text;background-clip:text;color:transparent;}
+  #ui p{font-size:clamp(10px,1.4vw,14px);opacity:.7;margin:.25em 0;font-weight:400;}
+  #ui .btn{margin-top:1.6em;padding:.9em 2.4em;border:1px solid rgba(217,176,74,.55);border-radius:2px;
+    font-size:13px;font-weight:700;color:#f0e6c8;background:rgba(217,176,74,.06);}
+  #hint{position:fixed;left:14px;bottom:12px;z-index:9;color:rgba(233,226,207,.35);
+    font:11px/1.5 "Helvetica Neue",Arial,sans-serif;letter-spacing:.12em;pointer-events:none;
+    opacity:0;transition:opacity .4s;}
+  #wrap:hover #hint{opacity:1;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="hint">F fullscreen &nbsp;·&nbsp; M mic &nbsp;·&nbsp; audio-reactive · 115 BPM idle · marble gold</div>
+</div>
+<div id="ui">
+  <h1>IMAGINARY LANDS</h1>
+  <p>AMBIENT TECHNO — MARBLE GOLD LOOP</p>
+  <p>CLICK TO ENTER · ENABLES MIC + FULLSCREEN</p>
+  <div class="btn">▶ START</div>
+</div>
+
+<script>
+const cvs = document.getElementById('c');
+const gl = cvs.getContext('webgl2', {antialias:false, alpha:false, premultipliedAlpha:false});
+if(!gl){ document.body.innerHTML = '<p style="color:#c99;font-family:sans-serif;padding:2em">WebGL2 not supported.</p>'; }
+
+const ASPECT = 4/3;
+
+/* ---------- shaders ---------- */
+const VERT = `#version 300 es
+in vec2 p; out vec2 vUv;
+void main(){ vUv = p*0.5+0.5; gl_Position = vec4(p,0.,1.); }`;
+
+const FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv; out vec4 frag;
+
+uniform vec2  uRes;
+uniform float uTime;    // seconds
+uniform float uFlow;    // accumulated flow phase (radians) — BPM / bass driven
+uniform float uBass;    // 0..1 low-band energy
+uniform float uFlick;   // 0..1 cold-white flicker accent
+uniform float uAspect;
+
+/* ---- Ashima simplex noise ---- */
+vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec2 mod289(vec2 x){return x-floor(x*(1.0/289.0))*289.0;}
+vec3 permute(vec3 x){return mod289(((x*34.0)+1.0)*x);}
+float snoise(vec2 v){
+  const vec4 C=vec4(0.211324865,0.366025404,-0.577350269,0.024390243);
+  vec2 i=floor(v+dot(v,C.yy));
+  vec2 x0=v-i+dot(i,C.xx);
+  vec2 i1=(x0.x>x0.y)?vec2(1.0,0.0):vec2(0.0,1.0);
+  vec4 x12=x0.xyxy+C.xxzz; x12.xy-=i1;
+  i=mod289(i);
+  vec3 pp=permute(permute(i.y+vec3(0.0,i1.y,1.0))+i.x+vec3(0.0,i1.x,1.0));
+  vec3 m=max(0.5-vec3(dot(x0,x0),dot(x12.xy,x12.xy),dot(x12.zw,x12.zw)),0.0);
+  m=m*m; m=m*m;
+  vec3 x=2.0*fract(pp*C.www)-1.0;
+  vec3 h=abs(x)-0.5; vec3 ox=floor(x+0.5); vec3 a0=x-ox;
+  m*=1.79284291-0.85373472*(a0*a0+h*h);
+  vec3 g; g.x=a0.x*x0.x+h.x*x0.y;
+  g.yz=a0.yz*x12.xz+h.yz*x12.yw;
+  return 130.0*dot(m,g);
+}
+/* rich fbm — marbled liquid-metal veining */
+float fbm(vec2 p){
+  float a=0.5, s=0.0;
+  for(int i=0;i<5;i++){ s+=a*snoise(p); p=p*2.03+1.7; a*=0.5; }
+  return s*0.5+0.5;
+}
+float hash21(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+
+/* ---- box SDF (center/half) : <0 inside ---- */
+float sdBox(vec2 p, vec2 c, vec2 h){ vec2 d=abs(p-c)-h; return length(max(d,0.0))+min(max(d.x,d.y),0.0); }
+float sdTri(vec2 p, vec2 p0, vec2 p1, vec2 p2){
+  vec2 e0=p1-p0,e1=p2-p1,e2=p0-p2;
+  vec2 v0=p-p0,v1=p-p1,v2=p-p2;
+  vec2 pq0=v0-e0*clamp(dot(v0,e0)/dot(e0,e0),0.0,1.0);
+  vec2 pq1=v1-e1*clamp(dot(v1,e1)/dot(e1,e1),0.0,1.0);
+  vec2 pq2=v2-e2*clamp(dot(v2,e2)/dot(e2,e2),0.0,1.0);
+  float s=sign(e0.x*e2.y-e0.y*e2.x);
+  vec2 d=min(min(vec2(dot(pq0,pq0),s*(v0.x*e0.y-v0.y*e0.x)),
+                 vec2(dot(pq1,pq1),s*(v1.x*e1.y-v1.y*e1.x))),
+                 vec2(dot(pq2,pq2),s*(v2.x*e2.y-v2.y*e2.x)));
+  return -sqrt(d.x)*sign(d.y);
+}
+
+/* ============================================================
+   4 non-overlapping rectilinear tangram blocks (uv, y up)
+   each block = union of rects; returns SD (<0 inside)
+   ============================================================ */
+float blockSD(int id, vec2 p){
+  if(id==0){                                   // top-left: big panel + left step
+    float a=sdBox(p, vec2(0.295,0.795), vec2(0.250,0.160));
+    float b=sdBox(p, vec2(0.140,0.517), vec2(0.095,0.117));
+    return min(a,b);
+  }
+  if(id==1){                                   // right: tall panel
+    return sdBox(p, vec2(0.775,0.632), vec2(0.180,0.322));
+  }
+  if(id==2){                                   // centre panel
+    return sdBox(p, vec2(0.415,0.500), vec2(0.130,0.100));
+  }
+  return   sdBox(p, vec2(0.500,0.157), vec2(0.455,0.112)); // bottom bar
+}
+
+/* ---- gold thermal ramp: deep bronze valleys -> gold -> white-hot ---- */
+vec3 goldRamp(float h){
+  h=clamp(h,0.0,1.0);
+  vec3 c0=vec3(0.045,0.030,0.020);
+  vec3 c1=vec3(0.30,0.17,0.05);
+  vec3 c2=vec3(0.60,0.40,0.11);
+  vec3 c3=vec3(0.90,0.70,0.26);
+  vec3 c4=vec3(1.00,0.94,0.62);
+  vec3 c5=vec3(1.00,0.99,0.92);
+  vec3 c;
+  if(h<0.2)      c=mix(c0,c1,smoothstep(0.0,0.2,h));
+  else if(h<0.45)c=mix(c1,c2,smoothstep(0.2,0.45,h));
+  else if(h<0.65)c=mix(c2,c3,smoothstep(0.45,0.65,h));
+  else if(h<0.85)c=mix(c3,c4,smoothstep(0.65,0.85,h));
+  else           c=mix(c4,c5,smoothstep(0.85,1.0,h));
+  return c;
+}
+/* subtle temperature casts — gold stays dominant */
+vec3 tempTint(float t, float h){
+  vec3 c=vec3(1.0);
+  c=mix(c, vec3(0.45,0.68,1.25), smoothstep(0.60,0.9,1.0-t)*(1.0-h)*0.65); // cool blue
+  c=mix(c, vec3(1.35,0.55,0.42), smoothstep(0.72,0.96,t)*smoothstep(0.55,0.9,h)*0.6); // hot red
+  c=mix(c, vec3(0.55,1.20,0.72), smoothstep(0.46,0.54,t)*(1.0-abs(h-0.5)*1.5)*0.35); // green pocket
+  return c;
+}
+
+void main(){
+  vec2 uv = vUv;
+
+  /* ---- which of the 4 blocks owns this pixel ---- */
+  int   bid=-1;
+  float aa=fwidth(uv.x)*1.2;
+  float cover=0.0;
+  for(int i=0;i<4;i++){
+    float d=blockSD(i,uv);
+    cover=max(cover, 1.0-smoothstep(0.0,aa,d));
+    if(d<0.0){ bid=i; }
+  }
+
+  /* ---- background: brown near-black between blocks ---- */
+  vec3 bg=vec3(0.050,0.038,0.029);
+  bg*=0.72+0.28*fbm(uv*2.2+7.0);
+
+  vec3 col=bg;
+
+  if(bid>=0){
+    /* ---- marbled liquid-metal: domain-warped fbm veining, per-block seed ---- */
+    vec2 seed=vec2(float(bid)*11.3, float(bid)*7.7);
+    vec2 hp=uv*vec2(uAspect,1.0)*3.2 + seed;
+    float ph=uFlow;
+    vec2 c1v=vec2(cos(ph),sin(ph))*0.55;
+    float w1=fbm(hp+c1v);
+    vec2 hp2=hp+1.35*vec2(w1, fbm(hp+c1v+3.1));
+    vec2 c2v=vec2(cos(ph*0.73+1.7),sin(ph*0.73+1.7))*0.42;
+    float w2=fbm(hp2+c2v);
+    vec2 hp3=hp2+1.0*vec2(w2, fbm(hp2+c2v+6.2));
+    float heat=fbm(hp3);
+    float temp=fbm(hp3*0.6+20.0+vec2(cos(ph*0.4),sin(ph*0.4))*0.3);
+    heat=clamp(heat*1.18-0.06+uBass*0.24, 0.0, 1.0);
+    heat=mix(heat, smoothstep(0.05,0.95,heat), 0.35); // deepen molten valleys
+
+    vec3 fluid=goldRamp(heat);
+
+    /* creamy chrome streaks from heat-field normal */
+    float hx=dFdx(heat), hy=dFdy(heat);
+    vec3 nrm=normalize(vec3(-hx,-hy,0.06));
+    float ang=atan(nrm.y,nrm.x);
+    float chrome=pow(0.5+0.5*sin(ang*3.0+heat*10.0+ph*1.3),1.5);
+    vec3 cream=vec3(0.96,0.91,0.79);
+    fluid=mix(fluid, fluid*cream*(0.55+0.9*chrome), 0.34*smoothstep(0.30,0.80,heat));
+
+    /* temperature variety (blue / red / green pockets) */
+    fluid=mix(fluid, fluid*tempTint(temp,heat), 0.30);
+
+    /* cold-white specular flicker on high-heat sheen */
+    float grad=length(vec2(hx,hy));
+    float sheen=smoothstep(0.0,0.16,grad);
+    fluid+=vec3(0.80,0.90,1.0)*sheen*chrome*(0.16+0.84*uFlick)*smoothstep(0.55,0.96,heat);
+
+    col = mix(bg, fluid, cover);
+
+    /* etched triangle motif inside the tall-right block */
+    if(bid==1){
+      float dtri=abs(sdTri(uv, vec2(0.775,0.720), vec2(0.660,0.460), vec2(0.890,0.460)));
+      float tl=1.0-smoothstep(0.0018,0.0018+aa,dtri);
+      col=mix(col, vec3(0.85,0.90,1.02), tl*0.30);
+    }
+  }
+
+  /* ---- fine grain (subtle, softer in highlights) ---- */
+  float g=hash21(uv*uRes+floor(uTime*40.0));
+  float lum=dot(col,vec3(0.299,0.587,0.114));
+  col+=(g-0.5)*0.038*mix(1.0,0.45,smoothstep(0.4,0.95,lum));
+
+  /* ---- vignette + cool bass lift ---- */
+  float vig=smoothstep(1.18,0.30,length((uv-0.5)*vec2(1.05,1.0)));
+  col*=mix(0.74,1.0,vig);
+  col+=vec3(0.012,0.018,0.032)*uFlick*0.5;
+
+  col=max(col,0.0);
+  frag=vec4(col,1.0);
+}`;
+
+/* ---------- GL setup ---------- */
+function compile(type,src){
+  const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,VERT));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FRAG));
+gl.bindAttribLocation(prog,0,'p');
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const vao=gl.createVertexArray(); gl.bindVertexArray(vao);
+const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 3,-1, -1,3]),gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+
+const U={
+  res:gl.getUniformLocation(prog,'uRes'),
+  time:gl.getUniformLocation(prog,'uTime'),
+  flow:gl.getUniformLocation(prog,'uFlow'),
+  bass:gl.getUniformLocation(prog,'uBass'),
+  flick:gl.getUniformLocation(prog,'uFlick'),
+  aspect:gl.getUniformLocation(prog,'uAspect'),
+};
+gl.uniform1f(U.aspect,ASPECT);
+
+/* ---------- sizing: 4:3 letterbox ---------- */
+let W=0,H=0;
+function resize(){
+  const dpr=Math.min(window.devicePixelRatio||1, 2);
+  const vw=window.innerWidth, vh=window.innerHeight;
+  let w=vw, h=vw/ASPECT;
+  if(h>vh){ h=vh; w=vh*ASPECT; }
+  cvs.style.width=w+'px'; cvs.style.height=h+'px';
+  W=Math.round(w*dpr); H=Math.round(h*dpr);
+  cvs.width=W; cvs.height=H;
+  gl.viewport(0,0,W,H);
+  gl.uniform2f(U.res,W,H);
+}
+window.addEventListener('resize',resize); resize();
+
+/* ---------- audio: mic bass + 115 BPM idle ---------- */
+const BPM=115;
+let analyser=null, freq=null, micActive=false;
+let bassEnv=0, bassFloor=0, bassCeil=0.15;
+
+async function initMic(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    const src=ac.createMediaStreamSource(stream);
+    analyser=ac.createAnalyser(); analyser.fftSize=2048; analyser.smoothingTimeConstant=0.6;
+    src.connect(analyser);
+    freq=new Uint8Array(analyser.frequencyBinCount);
+    micActive=true;
+  }catch(e){ micActive=false; }
+}
+
+function readBass(){
+  if(!micActive){ return {level:0, present:false}; }
+  analyser.getByteFrequencyData(freq);
+  let sum=0; for(let i=1;i<=7;i++) sum+=freq[i];
+  const raw=sum/(7*255);
+  bassEnv += (raw-bassEnv) * (raw>bassEnv ? 0.6 : 0.10);
+  bassCeil = Math.max(bassCeil*0.995, bassEnv);
+  bassFloor = Math.min(bassFloor*0.995 + 0.0002, bassEnv*0.5 + bassFloor*0.5);
+  const span=Math.max(bassCeil-bassFloor, 0.02);
+  const level=Math.min(Math.max((bassEnv-bassFloor)/span,0),1);
+  return {level, present: raw>0.018};
+}
+
+/* ---------- render loop ---------- */
+let flow=0, last=performance.now()/1000, started=false;
+let flickState=0;
+const BASE_FLOW = 2*Math.PI*(BPM/60)/16;  // ~0.75 rad/s churn at 115 BPM
+
+function frame(now){
+  now/=1000; let dt=Math.min(now-last,0.05); last=now;
+
+  const b=readBass();
+  const beatPhase=(now*BPM/60)%1.0;
+  const bpmEnv=Math.pow(0.5+0.5*Math.sin(2*Math.PI*(beatPhase-0.25)),3.0);
+  const drive = b.present ? b.level : bpmEnv*0.55;
+
+  flow += dt * BASE_FLOW * (1.0 + drive*1.6);
+
+  let target = drive*0.85;
+  if(Math.random()<0.04) target += 0.5;
+  if(b.present && b.level>0.7 && Math.random()<0.3) target += 0.4;
+  flickState += (Math.min(target,1.0)-flickState) * (target>flickState?0.7:0.12);
+
+  gl.uniform1f(U.time, now);
+  gl.uniform1f(U.flow, flow);
+  gl.uniform1f(U.bass, drive);
+  gl.uniform1f(U.flick, flickState);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+
+  requestAnimationFrame(frame);
+}
+
+/* ---------- start (user gesture) ---------- */
+const ui=document.getElementById('ui'), wrap=document.getElementById('wrap');
+async function start(){
+  if(started) return; started=true;
+  ui.style.opacity='0'; setTimeout(()=>ui.style.display='none',650);
+  if(wrap.requestFullscreen){ try{ await wrap.requestFullscreen(); }catch(e){} }
+  await initMic();
+  last=performance.now()/1000;
+  requestAnimationFrame(frame);
+}
+ui.addEventListener('click',start);
+
+/* keys */
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='f'){ if(document.fullscreenElement) document.exitFullscreen(); else wrap.requestFullscreen(); }
+  if(k==='m'){ if(!micActive) initMic(); }
+});
+
+/* draw one idle frame behind the overlay */
+gl.uniform1f(U.flow,0); gl.uniform1f(U.bass,0); gl.uniform1f(U.flick,0); gl.uniform1f(U.time,0);
+gl.drawArrays(gl.TRIANGLES,0,3);
+</script>
+</body>
+</html>
