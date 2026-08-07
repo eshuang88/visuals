@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Imaginary Lands — Visuals</title>
+<style>
+  :root { --paper:#090b0d; --ink:#e8e5dd; --muted:#8a8f8c; --line:rgba(232,229,221,.13); --acid:#c9e88a; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: radial-gradient(120% 80% at 80% -10%, rgba(152,189,196,.10), transparent 34rem), var(--paper);
+    color: var(--ink); min-height: 100vh;
+    font-family: Inter, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: clamp(28px, 7vw, 90px);
+  }
+  .eyebrow { font-family: "SFMono-Regular", Consolas, monospace; text-transform: uppercase;
+             letter-spacing: .22em; font-size: 10px; color: var(--acid); }
+  h1 { font-weight: 400; font-size: clamp(38px, 7vw, 84px); letter-spacing: -.04em;
+       line-height: .95; margin: 18px 0 14px; }
+  .dek { color: var(--muted); max-width: 52ch; font-size: clamp(14px,1.6vw,17px); line-height: 1.6; }
+  ul { list-style: none; padding: 0; margin: clamp(38px,6vw,68px) 0 0; max-width: 760px; }
+  li a {
+    display: flex; align-items: baseline; gap: 20px; text-decoration: none; color: inherit;
+    padding: 22px 6px; border-top: 1px solid var(--line); transition: padding-left .25s ease, color .2s ease;
+  }
+  li:last-child a { border-bottom: 1px solid var(--line); }
+  li a:hover { padding-left: 18px; color: #fff; }
+  .num { font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; color: var(--muted); min-width: 28px; }
+  .name { font-size: clamp(20px, 3vw, 30px); letter-spacing: -.02em; }
+  .tag { margin-left: auto; font-family: "SFMono-Regular", Consolas, monospace; font-size: 10px;
+         letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .arrow { color: var(--muted); }
+  li a:hover .arrow { color: var(--acid); }
+  footer { margin-top: clamp(40px,7vw,80px); color: var(--muted); font-size: 12px;
+           font-family: "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
+  footer code { color: var(--ink); }
+</style>
+</head>
+<body>
+  <div class="eyebrow">Ambient Techno · Live Visuals</div>
+  <h1>Imaginary&nbsp;Lands</h1>
+  <p class="dek">Texture over time. One WebGL visual per track, 4:3, seamless, audio-reactive (mic bass, with a per-track BPM fallback). Click any track to open it fullscreen.</p>
+
+  <ul>
+    <li><a href="tracks/01-chrome-sands/index.html">
+      <span class="num">01</span><span class="name">Chrome Sands</span>
+      <span class="tag">liquid chrome · 115 BPM</span><span class="arrow">→</span>
+    </a></li>
+    <li><a href="tracks/02-la-sunset/index.html">
+      <span class="num">02</span><span class="name">LA Sunset</span>
+      <span class="tag">Moonvoid cinemagraph</span><span class="arrow">→</span>
+    </a></li>
+    <li><a href="tracks/03-thermal-blob/index.html">
+      <span class="num">03</span><span class="name">Thermal Blob</span>
+      <span class="tag">thermal fluid gold · 115 BPM</span><span class="arrow">→</span>
+    </a></li>
+    <li><a href="tracks/04-marble-gold/index.html">
+      <span class="num">04</span><span class="name">Marble Gold</span>
+      <span class="tag">marbled liquid metal · 115 BPM</span><span class="arrow">→</span>
+    </a></li>
+    <li><a href="tracks/05-animal-photo-loop/README.md">
+      <span class="num">05</span><span class="name">Animal Photo Loop</span>
+      <span class="tag">memory film · render.py</span><span class="arrow">→</span>
+    </a></li>
+    <li><a href="tracks/_template/index.html">
+      <span class="num">··</span><span class="name">Template</span>
+      <span class="tag">starter for a new song</span><span class="arrow">→</span>
+    </a></li>
+  </ul>
+
+  <footer>See <code>CLAUDE.md</code> for the visual bible · <code>node build.js</code> flattens a track for the show</footer>
+</body>
+</html>

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>01 · Chrome Sands — Imaginary Lands</title>
+<link rel="stylesheet" href="../../lib/visual-core.css">
+</head>
+<body>
+
+<!-- Scene: creamy liquid chrome (Floating Points direction — see CLAUDE.md).
+     Full-frame iterative domain-warped heightfield lit as polished metal.
+
+     30s LOOP variant: every time-dependence enters through sin/cos of the loop
+     phase ph = TAU * u_time / 30 (and its integer harmonics 2ph, 3ph), so the
+     whole field returns exactly to its start every 30s — seamless AND perfectly
+     periodic. The domain-warp offsets orbit on circles rather than drifting in a
+     line, so the folds curl and reverse (reads more organic / less repetitive
+     than a straight translation). u_bass stays a live overlay (relief, warp,
+     swell) — it never breaks the geometric loop.
+
+     Colour & texture breathe across the loop but stay in the deep-blue family:
+     a slow steel<->indigo temperature drift, a large low-freq "weather" field
+     that moves where the cream light pools each pass, and a faint chrome sparkle
+     that migrates over the crests. Uses the engine prelude (fbm, IL_* palette,
+     ambientPost) + standard uniforms. -->
+<script id="scene" type="x-shader/x-fragment">
+#define TAU  6.28318530718
+#define LOOP 30.0
+
+// large, slow "weather" field — decides where the light pools this pass.
+// its single circular offset keeps it periodic over the loop.
+float weather(vec2 p, float ph){
+  vec2 c = 0.5 * vec2(cos(ph), sin(ph));
+  return fbm(p * 0.7 + c + vec2(3.3, 1.1));
+}
+
+// iterative domain warp -> a few big sweeping metal folds (low freq = big folds).
+// all flow enters via circular (looping) offsets c1/c2/c3 at 1x/2x/3x the loop
+// frequency, so heightField is exactly periodic in ph.
+float heightField(vec2 p, float ph, float bass){
+  vec2 c1 = vec2(cos(ph),           sin(ph));
+  vec2 c2 = vec2(cos(2.0*ph + 1.3), sin(2.0*ph + 0.7));
+  vec2 c3 = vec2(cos(3.0*ph - 0.5), sin(3.0*ph + 2.1));
+  float warp = 1.65 + bass * 1.05;                 // fold depth breathes with the bass
+  vec2 w1 = vec2(fbm(p + 0.55*c1),
+                 fbm(p + 0.55*c1 + vec2(5.2, 1.3)));
+  vec2 w2 = vec2(fbm(p + 2.6*w1 + 0.42*c2 + vec2(1.7, 9.2)),
+                 fbm(p + 2.6*w1 + 0.42*c2 + vec2(8.3, 2.8)));
+  return fbm(p + warp*w2 + 0.30*c3);
+}
+
+// faux chrome environment (what the metal reflects). mood (0..1) slowly shifts
+// the whole reflection between a colder steel-cream and a deeper indigo, staying
+// in the deep-blue family: near-black floor, hot cream horizon band drifting a
+// touch toward ice, cold-white key highlight.
+vec3 env(vec3 rd, float mood){
+  float y = rd.y;
+  vec3 lower = mix(vec3(0.002, 0.006, 0.020),   // near-black indigo floor
+                   vec3(0.004, 0.010, 0.030), mood);
+  vec3 upper = mix(vec3(0.020, 0.050, 0.120),   // deep blue sky
+                   vec3(0.028, 0.060, 0.165), mood);
+  vec3 col = mix(lower, upper, smoothstep(-0.35, 0.7, y));
+  vec3 band = mix(IL_WARMWHITE, mix(IL_WARMWHITE, IL_ICE, 0.32), mood);
+  col += band * exp(-abs(y - 0.015) * 10.0) * 1.7;                    // hot horizon light band
+  col += mix(vec3(0.55, 0.62, 0.72), vec3(0.47, 0.60, 0.80), mood)
+         * exp(-abs(y + 0.12) * 4.0) * 0.35;                          // soft bounce
+  float key = pow(max(dot(rd, normalize(vec3(-0.42, 0.34, 0.62))), 0.0), 40.0);
+  col += mix(vec3(0.85, 0.93, 1.10), vec3(0.80, 0.90, 1.18), mood) * key * 1.5; // cold-white key
+  return col;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*u_res) / u_res.y;   // y in [-.5,.5], x aspect-correct
+  float bass = u_bass;
+
+  // ---- the 30s loop phase (seamless + perfectly periodic) ----
+  float ph    = TAU * u_time / LOOP;
+  float mood  = 0.5 + 0.5 * sin(ph);            // slow 30s temperature breathe
+  float mood2 = 0.5 + 0.5 * sin(2.0*ph + 1.0);  // 15s secondary drift
+
+  // ---- flicker family (a "flicker is an instrument" per CLAUDE.md) ----
+  // every term is a high integer harmonic of ph, so each repeats at 30s (loop
+  // stays exact) but their sum is irregular / non-metronomic — a flutter, not a
+  // strobe. u_bass adds live reactivity: in the 115 BPM fallback it pulses on the
+  // beat, so the shimmer rides the tempo when there's no mic.
+  float ef      = sin(ph*7.0 + 1.3) + 0.7*sin(ph*11.0 + 2.1) + 0.5*sin(ph*17.0);
+  float specShim = 0.78 + 0.22 * sin(ph*19.0);  // fast highlight shiver base
+
+  vec2  p = uv * 0.98;
+  float e = 0.02;
+  float hC = heightField(p,                 ph, bass);
+  float hL = heightField(p + vec2(-e, 0.0), ph, bass);
+  float hR = heightField(p + vec2( e, 0.0), ph, bass);
+  float hD = heightField(p + vec2(0.0,-e),  ph, bass);
+  float hU = heightField(p + vec2(0.0, e),  ph, bass);
+
+  float relief = 0.60 + bass * 0.38;                   // fold steepness breathes with the bass
+  vec2  grad   = vec2(hR - hL, hU - hD) / (2.0 * e);
+  vec3  N      = normalize(vec3(-grad * relief, 1.0));
+
+  vec3 V = normalize(vec3(0.0, 0.32, 1.0));            // camera looks slightly down the folds
+  vec3 L = normalize(vec3(-0.38, 0.46, 0.55));         // cold white key light
+  vec3 H = normalize(L + V);
+
+  vec3  R    = reflect(-V, N);
+  vec3  refl = env(R, mood);
+  float fres = pow(1.0 - max(dot(N, V), 0.0), 2.8);
+
+  // large low-freq "weather" tints the body per-region and moves each pass, so
+  // different folds take slightly different blues -> more colour variation.
+  float tf = weather(p * 1.3 + 7.0, ph);
+  vec3 bodyHi = mix(vec3(0.30, 0.44, 0.62),     // steel blue
+                    vec3(0.24, 0.42, 0.68), tf); // deeper indigo
+  vec3 body = mix(vec3(0.006, 0.018, 0.05), bodyHi, hC);   // creamy-blue base
+  vec3 col  = mix(body, refl, 0.58 + 0.42*fres);
+
+  float ndh = max(dot(N, H), 0.0);
+  // blown cream specular, now shivering: per-location phase (hC) desyncs the
+  // shiver across highlights so they twinkle out of step rather than as a block.
+  col += vec3(1.0, 0.97, 0.86) * pow(ndh, 42.0) * 1.7 * (specShim + 0.18*sin(ph*23.0 + hC*28.0));
+  col += vec3(0.88, 0.92, 0.97) * pow(ndh, 7.0) * 0.55; // creamy satin sheen
+  col += vec3(0.08, 0.15, 0.28) * max(dot(N, L), 0.0) * 0.25; // cold diffuse fill
+
+  // active chrome twinkle: glints wink on/off on the crests (texture flicker).
+  // two noise fields drift at high harmonics of the loop, so the sparkle pattern
+  // churns quickly; bass makes it flare, so it pulses on the 115 BPM fallback.
+  float tw1 = vnoise(p * 6.5  + vec2(cos(7.0*ph)*2.0, sin(5.0*ph)*2.0) + 11.0);
+  float tw2 = vnoise(p * 11.0 + vec2(sin(9.0*ph)*2.5, cos(6.0*ph)*2.5) + 4.0);
+  float crest = smoothstep(0.52, 0.92, hC);
+  float glint = smoothstep(0.66, 0.98, tw1) * smoothstep(0.60, 0.97, tw2);
+  col += vec3(0.86, 0.92, 1.0) * glint * crest * (0.26 + 0.60*bass) * (0.9 + 0.3*mood2);
+
+  // luminous cream haze — its pool follows the weather field, so where the light
+  // gathers wanders across the loop instead of always hugging the top edge.
+  float hazeY = smoothstep(-0.1, 0.5, uv.y);
+  float pool  = mix(0.75, 1.25, tf);
+  col += vec3(0.85, 0.88, 0.82) * hazeY * hazeY * 0.14 * pool * (0.6 + 0.6*fres);
+  col = mix(col, vec3(0.01, 0.03, 0.07), smoothstep(0.28, 0.5, uv.y) * 0.55); // near-black top
+
+  // exposure flutter — the whole frame breathes brighter/darker in an irregular,
+  // non-metronomic way (a few percent), with an extra kick from the bass.
+  col *= 1.0 + 0.045*ef + 0.10*bass;
+
+  // rare light-leak: a soft cream bar drifts across and only sometimes brightens,
+  // like a stray reflection sweeping the metal. loop-periodic + gated (occasional).
+  float sweepX  = sin(ph*2.0) * 0.75;
+  float leak    = exp(-pow((uv.x - sweepX) / 0.20, 2.0));
+  float leakAmt = smoothstep(0.55, 1.0, sin(ph*3.0 + 0.7));
+  col += IL_WARMWHITE * leak * leakAmt * 0.09 * (0.7 + 0.8*bass);
+
+  gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
+}
+</script>
+
+<script src="../../lib/visual-core.js"></script>
+<script>
+  Ambient.start({
+    title: 'CHROME SANDS',
+    subtitle: 'ambient techno · 01 · 4:3 · 30s loop<br>點擊進入全螢幕 — 允許麥克風以隨低音起伏<br><span style="opacity:.6">(無訊號時預設 115&nbsp;BPM · 動態每 30 秒循環)</span>',
+    bpm: 115
+  });
+</script>
+</body>
+</html>
