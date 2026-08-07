@@ -6,9 +6,12 @@ visual is **4:3, fullscreen, seamless, and audio-reactive** (mic bass, with a
 per-track BPM fallback).
 
 These pieces are the **generative / treatment** half of the project. The show's
-full language also draws on lived iPhone footage (see the Reference Report); this
-repo is where the abstract, phenomenon-driven, "30% treatment" material lives.
-The principles below are what carry over from that report into shader work.
+full language also draws on lived iPhone footage — see the full illustrated visual
+bible, [`Imaginary_Lands_Visual_Reference_Report.html`](./Imaginary_Lands_Visual_Reference_Report.html)
+(the eight reference directions, the flicker family, and the iPhone-first
+pipeline, covering **both** the generative and footage halves). This repo is where
+the abstract, phenomenon-driven, "30% treatment" material lives; this file is the
+text contract carrying that report's principles into shader work.
 
 ## Prime directive — texture over time
 
