@@ -102,6 +102,17 @@ Every scene shader is prepended with the prelude, so you may use directly:
 
 A scene is just a `void main(){ … gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, u_bass), 1.0); }`.
 
+**Footage tracks (optional).** Pass `Ambient.start({ video })` (a URL or an array
+of `{src,type}` sources) to bind a looping clip as the sampler `u_tex`; use
+`texCoverUV()` to cover-fit it to 4:3, treat it in-shader, and end with
+`ambientPost` as usual. Generative tracks pass no video and are unaffected
+(`u_tex` is an unused 1×1 black texture, `u_texRes` = 0). This is the live sibling
+of the render-only footage pipeline (track 05). A `file://` `<video>` taints the
+canvas and blocks the texture, so inline the clip as a `data:` URI to stay
+offline-from-`file://` (see `tracks/06-sand-taitung-warp/assets/README.md`).
+Track 06 (Sand · Taitung Warp) is the reference example, and also ships a
+`render.py` that bakes the same look into a fixed film.
+
 ## Adding a new track (one per song)
 
 1. Copy `tracks/_template` → `tracks/NN-<song>/`.
