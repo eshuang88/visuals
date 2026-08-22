@@ -85,7 +85,9 @@ lib/visual-core.css    shared 4:3 stage + start-overlay styles
 tracks/NN-<song>/      one folder per song: index.html = scene shader + Ambient.start()
 tracks/_template/      starter to copy for a new song
 build.js               flatten a track into a single self-contained file in dist/
+build-video-datauri.js footage helper: encode a track's loop to a data: URI (see below)
 index.html             gallery linking to the tracks
+player.html            live show cue list — hosts one visual-core scene at a time (← → / F / Esc)
 dist/                  build output (gitignored) — the files you actually project
 ```
 
@@ -101,6 +103,24 @@ Every scene shader is prepended with the prelude, so you may use directly:
 - **post** — `ambientPost(col, gl_FragCoord.xy, u_bass)`.
 
 A scene is just a `void main(){ … gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, u_bass), 1.0); }`.
+
+**Footage tracks (optional).** A scene can treat lived footage in real time instead
+of being purely generative (see `tracks/06-cave-human`). Pass a **seamless 4:3
+loop** to the engine and its current frame is kept in a sampler for the shader to
+grade/damage like any other input — so a footage piece is a first-class
+visual-core scene (drops into `player.html`, reacts to the mic) rather than a
+pre-rendered file:
+
+- `Ambient.start({ …, video: window.IL_VIDEO || 'assets/loop.mp4' })`
+- extra uniforms: `u_tex` (current frame), `u_texres` (its px size, 0 if none)
+- helper: `il_frame(uv)` — cover-fit sample of the frame into the 4:3 stage
+
+A `<video>` from a plain `file://` path is cross-origin, so WebGL samples it black
+offline. Fix it with a same-origin data URI: `node build-video-datauri.js NN-<song>`
+writes `tracks/NN-<song>/video-datauri.js` (`window.IL_VIDEO`, gitignored), which
+`build.js` inlines into the self-contained `dist/` file. The loop in `assets/` is
+the source of truth. This is the **generative-treatment** repo, so keep footage
+tracks phenomenon-driven (a texture held in darkness, treated) — not literal clips.
 
 ## Adding a new track (one per song)
 

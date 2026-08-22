@@ -1,3 +1,4 @@
 dist/
 tracks/*/out/
+tracks/*/video-datauri.js
 .DS_Store

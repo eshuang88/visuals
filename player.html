@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Imaginary Lands — Live Player</title>
+<style>
+  /* Concert player: one full-window frame that hosts a visual-core track (a scene).
+     Tracks are 4:3 and letterbox themselves on black, so the frame fills the window. */
+  :root { color-scheme: dark; --ink:#cdd2da; --muted:#7f8894; --acid:#c9e88a; --line:rgba(205,210,218,.14); }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; background:#000; overflow:hidden;
+    font-family:-apple-system,"Helvetica Neue","PingFang TC","Microsoft JhengHei",sans-serif; }
+  #frame { position:fixed; inset:0; width:100%; height:100%; border:0; background:#000; display:block; }
+
+  /* track chooser / cue list */
+  #menu { position:fixed; inset:0; z-index:20; background:radial-gradient(120% 90% at 50% 30%, rgba(20,32,52,.35), rgba(2,4,8,.96));
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    transition:opacity .5s ease; -webkit-user-select:none; user-select:none; }
+  #menu.hidden { opacity:0; pointer-events:none; }
+  #menu h1 { font-weight:300; letter-spacing:.28em; font-size:clamp(16px,2.4vw,26px); color:var(--ink); opacity:.9; margin-bottom:6px; }
+  #menu .hint { font-family:"SFMono-Regular",Consolas,monospace; font-size:11px; letter-spacing:.14em;
+    color:var(--muted); margin-bottom:22px; text-align:center; line-height:1.9; }
+  #menu ol { list-style:none; width:min(560px,86vw); }
+  #menu li { border-top:1px solid var(--line); }
+  #menu li:last-child { border-bottom:1px solid var(--line); }
+  #menu button { width:100%; background:none; border:0; color:var(--ink); cursor:pointer;
+    display:flex; align-items:baseline; gap:18px; padding:16px 8px; font:inherit; text-align:left;
+    transition:padding-left .2s ease, color .2s ease; }
+  #menu button:hover, #menu button:focus { padding-left:16px; color:#fff; outline:none; }
+  #menu .num { font-family:"SFMono-Regular",Consolas,monospace; font-size:11px; color:var(--muted); min-width:26px; }
+  #menu .name { font-size:clamp(16px,2.4vw,22px); letter-spacing:-.01em; }
+  #menu .tag { margin-left:auto; font-family:"SFMono-Regular",Consolas,monospace; font-size:10px;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+  #menu button:hover .tag { color:var(--acid); }
+
+  /* transient HUD: which cue is live */
+  #hud { position:fixed; left:16px; bottom:14px; z-index:10; font-size:11px; letter-spacing:.14em;
+    color:rgba(205,210,218,.5); font-family:"SFMono-Regular",Consolas,monospace; pointer-events:none;
+    opacity:0; transition:opacity .6s ease; }
+  #hud.show { opacity:1; }
+  body.hidecursor, body.hidecursor * { cursor:none !important; }
+</style>
+</head>
+<body>
+  <iframe id="frame" allow="microphone; fullscreen; autoplay" allowfullscreen></iframe>
+
+  <div id="menu">
+    <h1>IMAGINARY&nbsp;LANDS</h1>
+    <div class="hint">
+      點一首開始 · 全程用 ← → 換場，數字鍵直接跳，F 全螢幕，Esc 回選單<br>
+      pick a cue — then ← → to move between tracks · number keys jump · F fullscreen · Esc menu
+    </div>
+    <ol id="list"></ol>
+  </div>
+
+  <div id="hud">—</div>
+
+<script>
+  // The set list. Each entry is a visual-core scene (a track's index.html).
+  // Order = the show order; ← → walk this list. To play the fully self-contained
+  // build instead, point `file` at dist/<track>.html (node build.js / build-video-datauri.js).
+  // Footage tracks (kind:'footage') need their data URI once:  node build-video-datauri.js <track>
+  var TRACKS = [
+    { num:'01', name:'Chrome Sands', tag:'liquid chrome',   file:'tracks/01-chrome-sands/index.html' },
+    { num:'02', name:'LA Sunset',    tag:'moonvoid',         file:'tracks/02-la-sunset/index.html' },
+    { num:'03', name:'Thermal Blob', tag:'thermal fluid',    file:'tracks/03-thermal-blob/index.html' },
+    { num:'04', name:'Marble Gold',  tag:'liquid metal',     file:'tracks/04-marble-gold/index.html' },
+    { num:'06', name:'Cave Human',   tag:'footage · retro',  file:'tracks/06-cave-human/index.html', kind:'footage' }
+  ];
+
+  var frame = document.getElementById('frame');
+  var menu  = document.getElementById('menu');
+  var list  = document.getElementById('list');
+  var hud   = document.getElementById('hud');
+  var cur = -1, hudTimer, idleTimer;
+
+  TRACKS.forEach(function (t, i) {
+    var li = document.createElement('li');
+    var b = document.createElement('button');
+    b.innerHTML = '<span class="num">' + t.num + '</span><span class="name">' + t.name +
+                  '</span><span class="tag">' + t.tag + '</span>';
+    b.addEventListener('click', function () { play(i); });
+    li.appendChild(b); list.appendChild(li);
+  });
+
+  function play(i) {
+    if (i < 0 || i >= TRACKS.length) return;
+    cur = i;
+    frame.src = TRACKS[i].file;
+    menu.classList.add('hidden');
+    flashHud();
+  }
+  function next(d) { if (cur < 0) { play(0); return; } play((cur + d + TRACKS.length) % TRACKS.length); }
+  function showMenu() { menu.classList.remove('hidden'); }
+
+  function flashHud() {
+    if (cur < 0) return;
+    hud.textContent = TRACKS[cur].num + ' · ' + TRACKS[cur].name.toUpperCase();
+    hud.classList.add('show');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(function () { hud.classList.remove('show'); }, 2200);
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'n' || e.key === 'N' || e.key === ' ') { e.preventDefault(); next(1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'p' || e.key === 'P') { e.preventDefault(); next(-1); }
+    else if (e.key === 'Escape') { showMenu(); }
+    else if (/^[1-9]$/.test(e.key)) {
+      var idx = TRACKS.map(function (t) { return t.num; }).indexOf('0' + e.key);
+      if (idx < 0) idx = parseInt(e.key, 10) - 1;   // fall back to position
+      if (idx >= 0 && idx < TRACKS.length) play(idx);
+    }
+    else if (e.key === 'f' || e.key === 'F') {
+      var el = document.documentElement;
+      if (!document.fullscreenElement) { (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el); }
+      else { (document.exitFullscreen || document.webkitExitFullscreen || function () {}).call(document); }
+    }
+  });
+
+  // hide the cursor when idle (concert projection)
+  window.addEventListener('mousemove', function () {
+    document.body.classList.remove('hidecursor');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(function () { document.body.classList.add('hidecursor'); }, 2500);
+  });
+</script>
+</body>
+</html>

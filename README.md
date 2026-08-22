@@ -16,6 +16,11 @@ no mic/signal it undulates at the track's default BPM (115).
 
 Shortcuts: `F` fullscreen · `H` toggle HUD.
 
+**Live player.** [`player.html`](./player.html) is the show cue list — a full-window
+frame that hosts one track at a time. Walk the set with `← →` (or number keys),
+`F` for fullscreen, `Esc` for the menu. It plays visual-core scenes (the tracks
+below, and any footage track once its data URI is built — see *Footage tracks*).
+
 ## Tracks
 
 Each song lives in its own `tracks/NN-<song>/` folder (the show is
@@ -28,6 +33,7 @@ for copies or per-version branches.
 - `tracks/03-thermal-blob/` — thermal fluid gold, 4 tangram blocks (self-contained, 115 BPM)
 - `tracks/04-marble-gold/` — marbled liquid metal, 4 tangram blocks (self-contained, 115 BPM)
 - `tracks/05-animal-photo-loop/` — animal memory film, rendered via `render.py` (no live index.html)
+- `tracks/06-cave-human/` — cave-wall footage as a live visual-core scene: grainy retro chroma (footage, 112 BPM)
 - `tracks/_template/` — starter to copy for a new engine-based song
 
 > **Engine vs self-contained.** `01` (and new `_template` tracks) run on the
@@ -45,3 +51,28 @@ node build.js 06-<song>      # -> dist/06-<song>.html  (single self-contained fi
 ```
 
 `node build.js` with no argument flattens every track that has an `index.html`.
+
+## Footage tracks
+
+A track can be lived footage treated in real time instead of a pure generative
+shader (see `06-cave-human`). Drop a **seamless 4:3 loop** in the track's
+`assets/`, then pass it to the engine — the current frame lands in the `u_tex`
+sampler and the scene grades/damages it like any other shader (sample it with
+`il_frame(uv)`):
+
+```
+Ambient.start({ title, bpm, video: window.IL_VIDEO || 'assets/loop.mp4' });
+```
+
+Because a `<video>` loaded from a plain `file://` path is treated as cross-origin
+(WebGL then samples it black), footage needs a same-origin `data:` URI to play
+offline:
+
+```
+node build-video-datauri.js 06-cave-human   # -> tracks/06-cave-human/video-datauri.js (window.IL_VIDEO)
+node build.js 06-cave-human                 # -> dist/06-cave-human.html (data URI inlined, self-contained)
+```
+
+The generated `video-datauri.js` and `dist/` are gitignored — the loop in
+`assets/` is the source of truth. (For dev you can also just serve the folder over
+http, where the plain `assets/loop.mp4` path is same-origin and needs no data URI.)
