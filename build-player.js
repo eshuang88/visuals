@@ -26,17 +26,20 @@ function extractScene(html, where) {
   return m[1].trim();
 }
 
-// find a footage clip for a track folder: the first data:video URI baked into
-// assets/*.b64.js (see the track's build-video-datauri.js).
+// find a footage clip for a track folder: its assets/*.b64.js (baked by the
+// track's build-video-datauri.js) is REFERENCED by player.html via <script src>
+// rather than inlined, so player.html stays small no matter how many footage
+// tracks join. Returns the relative script path + the global var it defines.
 function footageFor(trackDir) {
   const assets = path.join(TRACKS, trackDir, 'assets');
   if (!fs.existsSync(assets)) return null;
   const b64 = fs.readdirSync(assets).find(f => f.endsWith('.b64.js'));
   if (!b64) return null;
   const js = fs.readFileSync(path.join(assets, b64), 'utf8');
-  const m = js.match(/data:video\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/i);
-  if (!m) throw new Error('no data:video URI in ' + b64);
-  return m[0];
+  const v = js.match(/window\.([A-Za-z_$][\w$]*)\s*=/);
+  if (!v) throw new Error('no `window.VAR =` in ' + trackDir + '/assets/' + b64);
+  if (!/data:video\//i.test(js)) throw new Error('no data:video URI in ' + b64);
+  return { src: 'tracks/' + trackDir + '/assets/' + b64, varName: v[1] };
 }
 
 function resolve(entry) {
@@ -70,13 +73,21 @@ function tl(glsl) {
 
 const items = setlist.map(resolve);
 
+// footage <script src> tags (deduped) — loaded before the track list so each
+// window.<VAR> exists when IL_TRACKS references it.
+const seen = {};
+const footageScripts = items
+  .filter(it => it.video && !seen[it.video.src] && (seen[it.video.src] = 1))
+  .map(it => '<script src="' + it.video.src + '"></script>')
+  .join('\n');
+
 const trackObjs = items.map(it => {
   const lines = [
     '  {',
     '    title: ' + JSON.stringify(it.title) + ', bpm: ' + it.bpm + ',',
     '    scene: ' + tl(it.scene) + (it.video ? ',' : '')
   ];
-  if (it.video) lines.push('    video: ' + JSON.stringify(it.video));
+  if (it.video) lines.push('    video: window.' + it.video.varName); // references the b64 script above
   lines.push('  }');
   return lines.join('\n');
 }).join(',\n');
@@ -97,10 +108,12 @@ const html = `<!doctype html>
      Add/reorder visuals in setlist.js, then: node build-player.js
 
      One page, one WebGL context, the whole set from the keyboard, offline
-     from file://. Footage tracks are inlined as data: URIs. Keys:
+     from file://. Footage tracks load their taint-free data: URI from
+     tracks/<song>/assets/*.b64.js (referenced below). Keys:
        → / N next · ← / P prev · space pause · ↓ 3s fade · 1–9 jump · F full · H help
      ===================================================================== -->
 
+${footageScripts}
 <script src="lib/visual-core.js"></script>
 <script src="lib/player-core.js"></script>
 <script>

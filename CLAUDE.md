@@ -117,6 +117,12 @@ taints the canvas and blocks the texture, so inline the clip as a `data:` URI to
 stay offline-from-`file://` (see `tracks/06-sand-taitung-warp/assets/README.md`).
 `lib/player-core.js` supports the same `video` field, so footage tracks drop into
 the concert player too. Track 06 (Sand · Taitung Warp) is the reference example.
+Two sampling helpers exist in the prelude — `texCoverUV(uv)` (returns a UV) and
+`il_frame(uv)` (returns the sampled `.rgb` directly, via `il_coverUV`); either is
+fine. The player references each footage track's `assets/*.b64.js` by `<script src>`
+(not inlined), so `player.html` stays small; each b64 sets a distinct
+`window.IL_*_VIDEO`. Build a track's loop+data-URI with its `build-video-datauri.js`
+(or `build-loop.sh` when only a raw `assets/source.*` was dropped in).
 
 ## Adding a new track (one per song)
 
