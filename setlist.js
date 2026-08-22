@@ -10,7 +10,7 @@
  *       <script id="scene"> shader; if the track is footage (its assets/ has a
  *       *.b64.js), the build inlines the loop's data: URI as `video` so the
  *       player runs it offline from file://. Only tracks authored for
- *       visual-core.js qualify (01, 06). Bespoke-engine tracks (02 canvas
+ *       visual-core.js qualify (01, 06, 07). Bespoke-engine tracks (02 canvas
  *       cinemagraph, 03/04 own-WebGL, 05 render-only) are NOT droppable here.
  *
  *   { scene: 'la-sunset.glsl', title, bpm }
@@ -25,5 +25,6 @@ module.exports = [
   { scene: 'marble-gold.glsl',      title: 'MARBLE GOLD',         bpm: 115 },
   { scene: 'animal-loop.glsl',      title: 'ANIMAL LOOP',         bpm: 115 },
   { scene: 'la-sunset.glsl',        title: 'LA SUNSET',           bpm: 115 },
-  { track: '06-sand-taitung-warp',  title: 'SAND · TAITUNG WARP', bpm: 115 }
+  { track: '06-sand-taitung-warp',  title: 'SAND · TAITUNG WARP', bpm: 115 },
+  { track: '07-paul-bluewater',     title: 'PAUL · BLUE WATER',   bpm: 115 }
 ];
