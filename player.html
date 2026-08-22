@@ -22,10 +22,10 @@
 <script src="player-covers/IL_cover_01.b64.js"></script>
 <script src="tracks/06-cave-human/assets/cave-human-loop.webm.b64.js"></script>
 <script src="tracks/06-sand-taitung-warp/assets/sand-taitung.webm.b64.js"></script>
-<script src="player-covers/IL_cover_02.b64.js"></script>
 <script src="tracks/07-drive-taitung/assets/drive-taitung.webm.b64.js"></script>
 <script src="tracks/07-ocean-shore-chroma/assets/ocean-shore.webm.b64.js"></script>
 <script src="tracks/07-paul-bluewater/assets/paul-bluewater.webm.b64.js"></script>
+<script src="player-covers/IL_cover_02.b64.js"></script>
 <script src="lib/visual-core.js"></script>
 <script src="lib/player-core.js"></script>
 <script>
@@ -334,37 +334,6 @@ void main(){
     video: window.IL_SAND_VIDEO
   },
   {
-    title: "INTERMISSION", bpm: 115,
-    scene: `/* Cover slide — show a still image (u_tex) CONTAIN-fit inside the 4:3 frame,
-   letterboxed on black (the cover art's own black field merges with the bars, so
-   it reads full-bleed). Kept faithful to the artwork: only a whisper of animated
-   grain and a few-percent bass lift so it breathes with the room instead of
-   looking frozen. Used by setlist { cover: '…' } entries. */
-void main(){
-  vec2 uv = gl_FragCoord.xy / u_res;
-  float ia = u_texRes.x / max(u_texRes.y, 1.0);   // image aspect
-  float sa = u_res.x    / max(u_res.y, 1.0);       // stage aspect (4:3)
-
-  // contain: fit the whole image, expanding the sample coord past [0,1] in the
-  // letterbox direction so those pixels fall outside the image -> black.
-  vec2 t = uv - 0.5;
-  if (ia > sa) t.y *= ia / sa;   // image wider than 4:3 -> bars top/bottom
-  else         t.x *= sa / ia;   // image taller/square -> bars left/right
-  t += 0.5;
-
-  vec3 col = vec3(0.0);
-  if (t.x > 0.0 && t.x < 1.0 && t.y > 0.0 && t.y < 1.0)
-    col = texture2D(u_tex, t).rgb;
-
-  col *= 1.0 + 0.04 * u_bass;                       // subtle life with the room
-  float g = hash(gl_FragCoord.xy + fract(u_time) * vec2(91.7, 47.3));
-  col += (g - 0.5) * 0.02;                          // whisper of grain (not frozen)
-
-  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
-}`,
-    image: window.ILCOVER02
-  },
-  {
     title: "DRIVE · TAITUNG", bpm: 115,
     scene: `#define TAU 6.28318530718
 
@@ -649,6 +618,37 @@ void main(){
   gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
 }`,
     video: window.IL_PAULBLUE_VIDEO
+  },
+  {
+    title: "INTERMISSION", bpm: 115,
+    scene: `/* Cover slide — show a still image (u_tex) CONTAIN-fit inside the 4:3 frame,
+   letterboxed on black (the cover art's own black field merges with the bars, so
+   it reads full-bleed). Kept faithful to the artwork: only a whisper of animated
+   grain and a few-percent bass lift so it breathes with the room instead of
+   looking frozen. Used by setlist { cover: '…' } entries. */
+void main(){
+  vec2 uv = gl_FragCoord.xy / u_res;
+  float ia = u_texRes.x / max(u_texRes.y, 1.0);   // image aspect
+  float sa = u_res.x    / max(u_res.y, 1.0);       // stage aspect (4:3)
+
+  // contain: fit the whole image, expanding the sample coord past [0,1] in the
+  // letterbox direction so those pixels fall outside the image -> black.
+  vec2 t = uv - 0.5;
+  if (ia > sa) t.y *= ia / sa;   // image wider than 4:3 -> bars top/bottom
+  else         t.x *= sa / ia;   // image taller/square -> bars left/right
+  t += 0.5;
+
+  vec3 col = vec3(0.0);
+  if (t.x > 0.0 && t.x < 1.0 && t.y > 0.0 && t.y < 1.0)
+    col = texture2D(u_tex, t).rgb;
+
+  col *= 1.0 + 0.04 * u_bass;                       // subtle life with the room
+  float g = hash(gl_FragCoord.xy + fract(u_time) * vec2(91.7, 47.3));
+  col += (g - 0.5) * 0.02;                          // whisper of grain (not frozen)
+
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`,
+    image: window.ILCOVER02
   },
   {
     title: "UMBRELLA STONE", bpm: 115,

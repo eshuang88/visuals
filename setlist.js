@@ -18,10 +18,10 @@ module.exports = [
   { track: '01-chrome-sands',       title: 'CHROME SANDS',        bpm: 115 },
   { track: '06-cave-human',         title: 'CAVE HUMAN',          bpm: 112 },
   { track: '06-sand-taitung-warp',  title: 'SAND · TAITUNG WARP', bpm: 115 },
-  { cover: 'IL_cover_02',           title: 'INTERMISSION' },       // 中場休息 — between the 06 and 07 tracks
   { track: '07-drive-taitung',      title: 'DRIVE · TAITUNG',     bpm: 115 },
   { track: '07-ocean-shore-chroma', title: 'OCEAN · SHORE CHROMA',bpm: 115 },
   { track: '07-paul-bluewater',     title: 'PAUL · BLUE WATER',   bpm: 115 },
+  { cover: 'IL_cover_02',           title: 'INTERMISSION' },       // 中場休息 — between the 6th & 7th songs
   { track: '07-umbrella-stone',     title: 'UMBRELLA STONE',      bpm: 115 },
   { track: '07-doorway-sea',        title: 'DOORWAY SEA',         bpm: 115 },
   { cover: 'IL_cover_01',           title: 'ENDING' }              // 結束 — 切回 cover 01
