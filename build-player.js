@@ -70,6 +70,7 @@ function resolve(entry) {
     const p = path.join(SCENES, entry.scene);
     if (!fs.existsSync(p)) throw new Error('missing scene ' + entry.scene);
     scene = fs.readFileSync(p, 'utf8').trim();
+    if (entry.image) image = coverFor(entry.image);   // a scene that samples a still (u_tex)
     name = entry.scene.replace(/\.glsl$/, '');
   } else {
     throw new Error('setlist entry needs `track`, `cover` or `scene`: ' + JSON.stringify(entry));
