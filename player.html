@@ -798,7 +798,8 @@ float crackCenter(float y, float ph){
 }
 float crackHalf(float y, float ph){
   float w = 0.014 + 0.150*smoothstep(-0.30, 0.55, y);   // widen toward the sky
-  w += 0.022*(flowFbm(vec2(3.1, y*9.0), ph*1.3) - 0.5); // jagged edges
+  w += 0.040*(flowFbm(vec2(3.1, y*8.0), ph*1.3) - 0.5); // jagged edges
+  w += 0.018*(abs(fract(y*6.0 + 0.3*sin(ph)) - 0.5) - 0.25); // angular sawtooth notches
   return max(0.006, w);
 }
 
@@ -828,9 +829,9 @@ vec3 field(vec2 p, float ph, float bass, out float edge){
   // ---- secret sky in the slot: ice -> warm white, drifting clouds ----
   float sy    = clamp((p.y + 0.5), 0.0, 1.0);
   float cloud = flowFbm(vec2(p.x*2.4 + 4.0, p.y*3.2 - sy*1.5), ph*0.6);
-  vec3  skyc  = mix(IL_ICE*0.85, IL_WARMWHITE, smoothstep(0.25, 0.9, cloud));
-  skyc = mix(skyc, IL_WARMWHITE*1.15, smoothstep(0.2, 0.75, sy)*0.4);   // brighter up high
-  skyc *= 1.05 + 0.35*bass;                                             // slot breathes with the low end
+  vec3  skyc  = mix(IL_ICE*0.92, IL_WARMWHITE, smoothstep(0.30, 0.9, cloud));  // keep some ice/cloud
+  skyc = mix(skyc, IL_WARMWHITE*1.05, smoothstep(0.25, 0.8, sy)*0.35);  // brighter up high
+  skyc *= 0.95 + 0.35*bass;                                            // slot breathes with the low end
 
   // ---- concrete faces (everything outside the crack) ----
   float side  = sign(p.x - cx);                          // -1 left wall, +1 right wall
@@ -838,17 +839,17 @@ vec3 field(vec2 p, float ph, float bass, out float edge){
   float mott  = fbm(p*5.5 + 13.0)*0.6 + fbm(p*17.0 + 2.0)*0.4;
   vec3  conc  = mix(IL_GRAPHITE, IL_BLUE, 0.35 + 0.3*mott);
   conc  = mix(conc, IL_VIOLET, 0.10);
-  conc *= 0.32 + 0.55*mott;                              // dark, moody body
-  // horizontal formwork board lines
-  float board = smoothstep(0.06, 0.14, abs(fract(p.y*11.0) - 0.5));
-  conc *= 0.80 + 0.20*board;
+  conc *= 0.42 + 0.34*mott;                              // dark, moody, flatter concrete body
+  // horizontal formwork board lines (subtle)
+  float board = smoothstep(0.06, 0.16, abs(fract(p.y*11.0) - 0.5));
+  conc *= 0.88 + 0.12*board;
   // diagonal diamond panel seams (the signature X of the photo) — darker grooves
-  float d1 = abs(fract((p.x + p.y)*3.2) - 0.5);
-  float d2 = abs(fract((p.x - p.y)*3.2) - 0.5);
-  float seam = smoothstep(0.0, 0.045, d1) * smoothstep(0.0, 0.045, d2);
-  conc *= 0.55 + 0.45*seam;
+  float d1 = abs(fract((p.x + p.y)*2.3) - 0.5);
+  float d2 = abs(fract((p.x - p.y)*2.3) - 0.5);
+  float seam = smoothstep(0.0, 0.05, d1) * smoothstep(0.0, 0.05, d2);
+  conc *= 0.72 + 0.28*seam;                              // grooves, not tufting
   // form-tie holes: dark dots on a diagonal grid, tiny lit lip
-  vec2  hg = vec2(p.x + p.y, p.x - p.y) * 3.2;
+  vec2  hg = vec2(p.x + p.y, p.x - p.y) * 2.3;
   vec2  hf = fract(hg) - 0.5;
   float hole = smoothstep(0.11, 0.05, length(hf));
   conc *= 1.0 - 0.7*hole;
@@ -870,7 +871,7 @@ vec3 field(vec2 p, float ph, float bass, out float edge){
   float gmask = clamp(edge*2.0 + streak*0.5 + sky*0.25, 0.0, 1.5);
   float glit  = glitterLayer(p*26.0, ph, 0.0)
               + glitterLayer(p*44.0 + 7.0, ph*1.37, 3.0)*0.7;
-  col += mix(IL_ICE, IL_WARMWHITE, 0.5) * glit * gmask * (0.7 + 1.6*bass);
+  col += mix(IL_ICE, IL_WARMWHITE, 0.5) * glit * gmask * (1.0 + 1.8*bass);
 
   return col;
 }
@@ -896,7 +897,7 @@ void main(){
 
   // ---- CHROMA (RGB) split: radial fringe, wider with the music + at surges ----
   vec2  rad = p;                          // from centre
-  float ca  = 0.0022 + 0.006*bass + 0.02*surge;
+  float ca  = 0.0032 + 0.007*bass + 0.02*surge;
   float e0, e1, e2;
   vec3  col;
   col.r = field(p + rad*ca, ph, bass, e0).r;
