@@ -23,6 +23,5 @@ module.exports = [
   { track: '07-paul-bluewater',     title: 'PAUL · BLUE WATER',   bpm: 115 },
   { cover: 'IL_cover_02',           title: 'INTERMISSION' },       // 中場休息 — between the 6th & 7th songs
   { track: '07-umbrella-stone',     title: 'UMBRELLA STONE',      bpm: 115 },
-  { track: '07-doorway-sea',        title: 'DOORWAY SEA',         bpm: 115 },
   { cover: 'IL_cover_01',           title: 'ENDING' }              // 結束 — 切回 cover 01
 ];
