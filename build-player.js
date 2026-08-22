@@ -42,27 +42,43 @@ function footageFor(trackDir) {
   return { src: 'tracks/' + trackDir + '/assets/' + b64, varName: v[1] };
 }
 
+const COVERS = path.join(ROOT, 'player-covers');
+
+// a cover slide: still image baked to player-covers/<name>.b64.js (build-covers.js).
+function coverFor(name) {
+  const p = path.join(COVERS, name + '.b64.js');
+  if (!fs.existsSync(p)) throw new Error('missing cover ' + name + '.b64.js — run player-covers/build-covers.js');
+  const js = fs.readFileSync(p, 'utf8');
+  const v = js.match(/window\.([A-Za-z_$][\w$]*)\s*=/);
+  if (!v) throw new Error('no `window.VAR =` in ' + name + '.b64.js');
+  return { src: 'player-covers/' + name + '.b64.js', varName: v[1] };
+}
+
 function resolve(entry) {
-  let scene, video = null, name;
+  let scene, video = null, image = null, name;
   if (entry.track) {
     const html = path.join(TRACKS, entry.track, 'index.html');
     if (!fs.existsSync(html)) throw new Error('missing track ' + entry.track);
     scene = extractScene(fs.readFileSync(html, 'utf8'), entry.track);
     video = footageFor(entry.track);
     name = entry.track;
+  } else if (entry.cover) {
+    scene = fs.readFileSync(path.join(SCENES, 'cover.glsl'), 'utf8').trim();
+    image = coverFor(entry.cover);
+    name = entry.cover;
   } else if (entry.scene) {
     const p = path.join(SCENES, entry.scene);
     if (!fs.existsSync(p)) throw new Error('missing scene ' + entry.scene);
     scene = fs.readFileSync(p, 'utf8').trim();
     name = entry.scene.replace(/\.glsl$/, '');
   } else {
-    throw new Error('setlist entry needs `track` or `scene`: ' + JSON.stringify(entry));
+    throw new Error('setlist entry needs `track`, `cover` or `scene`: ' + JSON.stringify(entry));
   }
   return {
     title: entry.title || name,
     bpm: entry.bpm || 115,
-    scene, video,
-    footage: !!video
+    scene, video, image,
+    footage: !!(video || image)
   };
 }
 
@@ -76,18 +92,21 @@ const items = setlist.map(resolve);
 // footage <script src> tags (deduped) — loaded before the track list so each
 // window.<VAR> exists when IL_TRACKS references it.
 const seen = {};
-const footageScripts = items
-  .filter(it => it.video && !seen[it.video.src] && (seen[it.video.src] = 1))
-  .map(it => '<script src="' + it.video.src + '"></script>')
+const assetScripts = items
+  .map(it => it.video || it.image)
+  .filter(a => a && !seen[a.src] && (seen[a.src] = 1))
+  .map(a => '<script src="' + a.src + '"></script>')
   .join('\n');
 
 const trackObjs = items.map(it => {
+  const asset = it.video ? { k: 'video', v: it.video.varName }
+              : it.image ? { k: 'image', v: it.image.varName } : null;
   const lines = [
     '  {',
     '    title: ' + JSON.stringify(it.title) + ', bpm: ' + it.bpm + ',',
-    '    scene: ' + tl(it.scene) + (it.video ? ',' : '')
+    '    scene: ' + tl(it.scene) + (asset ? ',' : '')
   ];
-  if (it.video) lines.push('    video: window.' + it.video.varName); // references the b64 script above
+  if (asset) lines.push('    ' + asset.k + ': window.' + asset.v); // references the b64 script above
   lines.push('  }');
   return lines.join('\n');
 }).join(',\n');
@@ -113,7 +132,7 @@ const html = `<!doctype html>
        → / N next · ← / P prev · space pause · ↓ 3s fade · 1–9 jump · F full · H help
      ===================================================================== -->
 
-${footageScripts}
+${assetScripts}
 <script src="lib/visual-core.js"></script>
 <script src="lib/player-core.js"></script>
 <script>
@@ -132,4 +151,4 @@ const kb = (Buffer.byteLength(html) / 1024).toFixed(0);
 console.log('built player.html — ' + items.length + ' visuals, ' + kb + ' kB');
 items.forEach((it, i) =>
   console.log('  ' + ('0' + (i + 1)).slice(-2) + ' ' + it.title +
-              (it.footage ? '  [footage]' : '')));
+              (it.image ? '  [cover]' : it.video ? '  [footage]' : '')));

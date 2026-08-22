@@ -7,21 +7,22 @@
  *
  * Entry kinds:
  *   { track: 'NN-<song>', title, bpm }   a real visual-core scene track FOLDER.
- *       The build pulls its <script id="scene">; if the track is footage (its
- *       assets/ has a *.b64.js), the loop's data: URI is inlined so it runs
- *       offline from file://.
+ *       Footage tracks (assets/*.b64.js) load their taint-free data: URI offline.
+ *   { cover: 'IL_cover_01', title }      a still cover slide from player-covers/
+ *       (bake images with player-covers/build-covers.js). Shown contain-fit,
+ *       letterboxed on black, with a whisper of grain so it isn't frozen.
  *   { scene: 'x.glsl', title, bpm }      a standalone scene in player-scenes/.
- *
- * All entries below are the real tracks. The prototype's earlier stand-in scenes
- * (marble-gold / animal-loop / la-sunset) still live in player-scenes/ if needed.
  */
 module.exports = [
+  { cover: 'IL_cover_01',           title: 'OPENING' },            // 開場
   { track: '01-chrome-sands',       title: 'CHROME SANDS',        bpm: 115 },
   { track: '06-cave-human',         title: 'CAVE HUMAN',          bpm: 112 },
   { track: '06-sand-taitung-warp',  title: 'SAND · TAITUNG WARP', bpm: 115 },
+  { cover: 'IL_cover_02',           title: 'INTERMISSION' },       // 中場休息 — between the 06 and 07 tracks
   { track: '07-drive-taitung',      title: 'DRIVE · TAITUNG',     bpm: 115 },
   { track: '07-ocean-shore-chroma', title: 'OCEAN · SHORE CHROMA',bpm: 115 },
   { track: '07-paul-bluewater',     title: 'PAUL · BLUE WATER',   bpm: 115 },
   { track: '07-umbrella-stone',     title: 'UMBRELLA STONE',      bpm: 115 },
-  { track: '07-doorway-sea',        title: 'DOORWAY SEA',         bpm: 115 }
+  { track: '07-doorway-sea',        title: 'DOORWAY SEA',         bpm: 115 },
+  { cover: 'IL_cover_01',           title: 'ENDING' }              // 結束 — 切回 cover 01
 ];
