@@ -25,5 +25,6 @@ module.exports = [
   { track: '07-umbrella-stone',     title: 'UMBRELLA STONE',      bpm: 115 },
   { track: '07-paul-secret-sky',    title: 'PAUL · SECRET SKY',   bpm: 115 },
   { scene: 'marble-gold.glsl',      title: 'MARBLE GOLD',         bpm: 115 },
+  { scene: 'shell-marble.glsl', image: 'IL_shell_marble', title: 'SHELL MARBLE', bpm: 115 },
   { cover: 'IL_cover_01',           title: 'ENDING' }              // 結束 — 切回 cover 01
 ];
