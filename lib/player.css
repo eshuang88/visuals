@@ -1,0 +1,34 @@
+/* Imaginary Lands — concert player extras.
+   Loaded on top of visual-core.css (which supplies #wrap/#stage/#overlay/#hud
+   and the 4:3 letterbox). This only adds the black transition curtain and the
+   keyboard help card. See lib/player-core.js. */
+
+/* Black transition curtain — covers the stage; opacity is driven from JS so the
+   same primitive does both the ~0.9 s track-change dip and the 3 s blackout. */
+#fade {
+  position: absolute; inset: 0; z-index: 6;
+  background: #000; opacity: 0; pointer-events: none;
+  will-change: opacity;
+}
+
+/* Keyboard help card (toggle with H / ?). Auto-shown once at start. */
+#help {
+  position: absolute; right: 16px; bottom: 14px; z-index: 7;
+  display: none; flex-direction: column; gap: 4px;
+  padding: 12px 14px; border-radius: 8px;
+  background: rgba(6, 9, 13, 0.62); border: 1px solid rgba(180, 196, 222, 0.14);
+  color: rgba(210, 216, 224, 0.72);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px; letter-spacing: 0.06em; line-height: 1.4;
+  pointer-events: none; -webkit-user-select: none; user-select: none;
+  backdrop-filter: blur(3px);
+}
+#help.show { display: flex; }
+#help b { color: rgba(201, 232, 138, 0.85); font-weight: 600; letter-spacing: 0.16em; margin-bottom: 3px; }
+#help kbd {
+  display: inline-block; min-width: 15px; text-align: center;
+  padding: 1px 5px; margin-right: 3px;
+  border: 1px solid rgba(180, 196, 222, 0.28); border-radius: 4px;
+  background: rgba(180, 196, 222, 0.06); color: rgba(222, 217, 202, 0.9);
+  font-size: 10px;
+}

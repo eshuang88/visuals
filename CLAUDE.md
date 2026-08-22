@@ -82,10 +82,16 @@ deliberate and note it in the track file.
 ```
 lib/visual-core.js     shared engine (WebGL, audio, post, GLSL prelude) — window.Ambient
 lib/visual-core.css    shared 4:3 stage + start-overlay styles
+lib/player-core.js     concert-player engine (many scenes, one context) — window.AmbientPlayer
+lib/player.css         player stage + HUD + fade-curtain styles
 tracks/NN-<song>/      one folder per song: index.html = scene shader + Ambient.start()
 tracks/_template/      starter to copy for a new song
-build.js               flatten a track into a single self-contained file in dist/
+player-scenes/*.glsl   player-only scenes (stand-ins for tracks on other engines)
+setlist.js             the concert SET ORDER (single source of truth for the player)
+build.js               flatten one track into a self-contained file in dist/
+build-player.js        assemble player.html from setlist.js
 index.html             gallery linking to the tracks
+player.html            GENERATED whole-set player (rebuild via build-player.js)
 dist/                  build output (gitignored) — the files you actually project
 ```
 
@@ -102,6 +108,22 @@ Every scene shader is prepended with the prelude, so you may use directly:
 
 A scene is just a `void main(){ … gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, u_bass), 1.0); }`.
 
+**Footage tracks (optional).** Pass `Ambient.start({ video })` (a URL or an array
+of `{src,type}` sources) to bind a looping clip as the sampler `u_tex`; use
+`texCoverUV()` to cover-fit it to 4:3, treat it in-shader, and end with
+`ambientPost` as usual. Generative tracks pass no video and are unaffected
+(`u_tex` is an unused 1×1 black texture, `u_texRes` = 0). A `file://` `<video>`
+taints the canvas and blocks the texture, so inline the clip as a `data:` URI to
+stay offline-from-`file://` (see `tracks/06-sand-taitung-warp/assets/README.md`).
+`lib/player-core.js` supports the same `video` field, so footage tracks drop into
+the concert player too. Track 06 (Sand · Taitung Warp) is the reference example.
+Two sampling helpers exist in the prelude — `texCoverUV(uv)` (returns a UV) and
+`il_frame(uv)` (returns the sampled `.rgb` directly, via `il_coverUV`); either is
+fine. The player references each footage track's `assets/*.b64.js` by `<script src>`
+(not inlined), so `player.html` stays small; each b64 sets a distinct
+`window.IL_*_VIDEO`. Build a track's loop+data-URI with its `build-video-datauri.js`
+(or `build-loop.sh` when only a raw `assets/source.*` was dropped in).
+
 ## Adding a new track (one per song)
 
 1. Copy `tracks/_template` → `tracks/NN-<song>/`.
@@ -117,6 +139,24 @@ repo (this file + `lib/`) is the shared memory, so a fresh session starts with
 the whole aesthetic already loaded. Keep `lib/` and `CLAUDE.md` stable; treat
 them as the contract. (Sessions clone from the remote, so shared changes must be
 pushed to be visible to a new session.)
+
+## Concert player (the whole set in one page)
+
+`player.html` runs the entire set from one WebGL context and the keyboard
+(→ next · ← prev · space pause · ↓ 3 s fade to black · 1–9 jump · F fullscreen ·
+H help), offline from `file://`. It is **generated** — don't hand-edit it.
+
+- **`setlist.js`** is the single source of truth for the show order. Two entry
+  kinds: `{ track: 'NN-<song>' }` pulls a real visual-core track's
+  `<script id="scene">` (and, if the track is footage, inlines its `assets/*.b64.js`
+  data: URI as `video`); `{ scene: '<name>.glsl' }` pulls a file from
+  `player-scenes/` (used for songs whose real track runs on another engine —
+  02 canvas cinemagraph, 03/04 own-WebGL, 05 render-only — so the player carries
+  a visual-core reinterpretation). `title` / `bpm` are optional per entry.
+- **Add / reorder a visual in the player:** edit `setlist.js`, then
+  `node build-player.js` → `player.html` is rebuilt (scenes + footage inlined).
+- Only visual-core scene tracks drop straight in via `{ track }`. A bespoke-engine
+  track must first be written as a `player-scenes/*.glsl` visual-core scene.
 
 ## Reference directions (pick one per track)
 

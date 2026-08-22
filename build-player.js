@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+/* Imaginary Lands — assemble the concert player from setlist.js.
+ *
+ *   node build-player.js        # -> player.html  (the whole set, in show order)
+ *
+ * Reads setlist.js (the single source of truth for order), pulls each entry's
+ * scene GLSL from its track folder (<script id="scene">) or from player-scenes/,
+ * inlines any footage clip as a data: URI, and writes a self-contained-enough
+ * player.html (it references lib/visual-core.js + lib/player-core.js, both in
+ * this repo, and inlines every scene + video so no per-track files are needed).
+ *
+ * "Add a visual to the player" = add a line to setlist.js, rerun this. That's it.
+ */
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = __dirname;
+const TRACKS = path.join(ROOT, 'tracks');
+const SCENES = path.join(ROOT, 'player-scenes');
+const setlist = require('./setlist.js');
+
+function extractScene(html, where) {
+  const m = html.match(/<script[^>]*id=["']scene["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) throw new Error('no <script id="scene"> in ' + where +
+    ' — only visual-core scene tracks can go in the player');
+  return m[1].trim();
+}
+
+// find a footage clip for a track folder: its assets/*.b64.js (baked by the
+// track's build-video-datauri.js) is REFERENCED by player.html via <script src>
+// rather than inlined, so player.html stays small no matter how many footage
+// tracks join. Returns the relative script path + the global var it defines.
+function footageFor(trackDir) {
+  const assets = path.join(TRACKS, trackDir, 'assets');
+  if (!fs.existsSync(assets)) return null;
+  const b64 = fs.readdirSync(assets).find(f => f.endsWith('.b64.js'));
+  if (!b64) return null;
+  const js = fs.readFileSync(path.join(assets, b64), 'utf8');
+  const v = js.match(/window\.([A-Za-z_$][\w$]*)\s*=/);
+  if (!v) throw new Error('no `window.VAR =` in ' + trackDir + '/assets/' + b64);
+  if (!/data:video\//i.test(js)) throw new Error('no data:video URI in ' + b64);
+  return { src: 'tracks/' + trackDir + '/assets/' + b64, varName: v[1] };
+}
+
+const COVERS = path.join(ROOT, 'player-covers');
+
+// a cover slide: still image baked to player-covers/<name>.b64.js (build-covers.js).
+function coverFor(name) {
+  const p = path.join(COVERS, name + '.b64.js');
+  if (!fs.existsSync(p)) throw new Error('missing cover ' + name + '.b64.js — run player-covers/build-covers.js');
+  const js = fs.readFileSync(p, 'utf8');
+  const v = js.match(/window\.([A-Za-z_$][\w$]*)\s*=/);
+  if (!v) throw new Error('no `window.VAR =` in ' + name + '.b64.js');
+  return { src: 'player-covers/' + name + '.b64.js', varName: v[1] };
+}
+
+function resolve(entry) {
+  let scene, video = null, image = null, name;
+  if (entry.track) {
+    const html = path.join(TRACKS, entry.track, 'index.html');
+    if (!fs.existsSync(html)) throw new Error('missing track ' + entry.track);
+    scene = extractScene(fs.readFileSync(html, 'utf8'), entry.track);
+    video = footageFor(entry.track);
+    name = entry.track;
+  } else if (entry.cover) {
+    scene = fs.readFileSync(path.join(SCENES, 'cover.glsl'), 'utf8').trim();
+    image = coverFor(entry.cover);
+    name = entry.cover;
+  } else if (entry.scene) {
+    const p = path.join(SCENES, entry.scene);
+    if (!fs.existsSync(p)) throw new Error('missing scene ' + entry.scene);
+    scene = fs.readFileSync(p, 'utf8').trim();
+    if (entry.image) image = coverFor(entry.image);   // a scene that samples a still (u_tex)
+    name = entry.scene.replace(/\.glsl$/, '');
+  } else {
+    throw new Error('setlist entry needs `track`, `cover` or `scene`: ' + JSON.stringify(entry));
+  }
+  return {
+    title: entry.title || name,
+    bpm: entry.bpm || 115,
+    scene, video, image,
+    footage: !!(video || image)
+  };
+}
+
+// embed GLSL as a JS template literal safely (escape backslash, backtick, ${)
+function tl(glsl) {
+  return '`' + glsl.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${') + '`';
+}
+
+const items = setlist.map(resolve);
+
+// footage <script src> tags (deduped) — loaded before the track list so each
+// window.<VAR> exists when IL_TRACKS references it.
+const seen = {};
+const assetScripts = items
+  .map(it => it.video || it.image)
+  .filter(a => a && !seen[a.src] && (seen[a.src] = 1))
+  .map(a => '<script src="' + a.src + '"></script>')
+  .join('\n');
+
+const trackObjs = items.map(it => {
+  const asset = it.video ? { k: 'video', v: it.video.varName }
+              : it.image ? { k: 'image', v: it.image.varName } : null;
+  const lines = [
+    '  {',
+    '    title: ' + JSON.stringify(it.title) + ', bpm: ' + it.bpm + ',',
+    '    scene: ' + tl(it.scene) + (asset ? ',' : '')
+  ];
+  if (asset) lines.push('    ' + asset.k + ': window.' + asset.v); // references the b64 script above
+  lines.push('  }');
+  return lines.join('\n');
+}).join(',\n');
+
+const html = `<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Imaginary Lands — Concert Player</title>
+<link rel="stylesheet" href="lib/visual-core.css">
+<link rel="stylesheet" href="lib/player.css">
+</head>
+<body>
+
+<!-- =====================================================================
+     GENERATED by build-player.js from setlist.js — do not edit by hand.
+     Add/reorder visuals in setlist.js, then: node build-player.js
+
+     One page, one WebGL context, the whole set from the keyboard, offline
+     from file://. Footage tracks load their taint-free data: URI from
+     tracks/<song>/assets/*.b64.js (referenced below). Keys:
+       → / N next · ← / P prev · space pause · ↓ 3s fade · 1–9 jump · F full · H help
+     ===================================================================== -->
+
+${assetScripts}
+<script src="lib/visual-core.js"></script>
+<script src="lib/player-core.js"></script>
+<script>
+/* ${items.length} visuals · show order from setlist.js */
+var IL_TRACKS = [
+${trackObjs}
+];
+AmbientPlayer.start({ title: 'IMAGINARY LANDS', start: 0, tracks: IL_TRACKS });
+</script>
+</body>
+</html>
+`;
+
+fs.writeFileSync(path.join(ROOT, 'player.html'), html);
+const kb = (Buffer.byteLength(html) / 1024).toFixed(0);
+console.log('built player.html — ' + items.length + ' visuals, ' + kb + ' kB');
+items.forEach((it, i) =>
+  console.log('  ' + ('0' + (i + 1)).slice(-2) + ' ' + it.title +
+              (it.image ? '  [cover]' : it.video ? '  [footage]' : '')));

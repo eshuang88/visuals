@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>06 · Sand Taitung Warp — Imaginary Lands</title>
+<link rel="stylesheet" href="../../lib/visual-core.css">
+</head>
+<body>
+
+<!-- Scene: IL_sandTaitung_warp — FOOTAGE track (the project's footage half).
+     Source: IL_001_sandOcean_flowWarp — an aerial black-sand tidal flat (Taitung).
+     The real clip plays as the base (assets/sand-taitung.{webm,mp4}, a seamless
+     ~10.7s loop), treated in the house style and pushed further:
+
+       · flow-warp  — the footage UV is domain-warped by u_flow (+ u_bass), so the
+                      sand liquefies a touch beyond its own motion; the warp swells
+                      on the bass. Emotion sync, not beat sync.
+       · framing    — texCoverUV() fits the 2.26:1 clip into 4:3; a slow drift pans
+                      the crop so no two passes of the loop frame identically.
+       · treatment  — a cold graphite grade, a warm-white halation lifted off the
+                      dry-sand crests, then ambientPost (bass swell, S-grade,
+                      vignette, film grain) so it wears the same skin as every track.
+
+     "Further seconds" (past ~11s / to 45s+): the loop is seamless and u_flow never
+     wraps, while the drift, warp phase and a slow tint breath keep evolving — so it
+     stays alive indefinitely without ever reading as a cut or a hard repeat.
+
+     Palette stays canonical IL_* and low-saturation; the footage already sits in
+     the near-black / graphite-green / muted-violet family. -->
+<script id="scene" type="x-shader/x-fragment">
+#define TAU 6.28318530718
+
+// iterative domain warp -> the slow liquid "flow warp" laid over the footage.
+vec2 flowWarp(vec2 p, float flow, float bass){
+  vec2 q = vec2(fbm(p*1.2           + vec2(0.0, -flow)),
+                fbm(p*1.2 + vec2(5.2,1.3) - vec2(0.0, flow*0.8)));
+  vec2 r = vec2(fbm(p*1.6 + 1.7*q + vec2(1.7,9.2)),
+                fbm(p*1.6 + 1.7*q + vec2(8.3,2.8)));
+  return (r - 0.5) * (0.5 + bass);            // displacement, breathing with the bass
+}
+
+void main(){
+  vec2 uv01 = gl_FragCoord.xy / u_res;        // 0..1 stage space
+  float bass = u_bass;
+  float flow = u_flow;
+  float t    = u_time;
+
+  // slow, seamless breaths (smooth oscillation -> no loop seam)
+  float slow  = 0.5 + 0.5*sin(t*0.040);        // ~155 s
+  float slow2 = 0.5 + 0.5*sin(t*0.026 + 1.7);   // ~240 s, out of phase
+
+  // --- flow-warp the sampling coordinate (aspect-corrected so it's not squashed) ---
+  vec2 asp = vec2(u_res.x/u_res.y, 1.0);
+  vec2 wcoord = (uv01 - 0.5) * asp;
+  vec2 disp = flowWarp(wcoord*1.4, flow, bass) * (0.010 + 0.013*bass);
+  vec2 uvw = uv01 + disp / asp;
+
+  // --- slow drift of the 4:3 crop; a slight zoom crops the footage's edges ---
+  vec2 drift = vec2(0.012*sin(t*0.021) + 0.008*(slow-0.5),
+                    0.010*cos(t*0.017) + 0.006*(slow2-0.5));
+  vec2 uvf = (texCoverUV(uvw) - 0.5) / 1.12 + 0.5 + drift;   // 1.12 zoom hides edge wedges
+
+  vec3 src = texture2D(u_tex, clamp(uvf, 0.001, 0.999)).rgb;
+
+  // the clip is shot dark; open it a touch before grading so ambientPost's
+  // S-crush (applied at the end) lands with shadows readable but the mood deep.
+  src = clamp(src * 1.28, 0.0, 1.0);
+  src = pow(src, vec3(0.94));                     // gentle gamma lift
+
+  float L = dot(src, vec3(0.30, 0.59, 0.11));     // luma
+
+  // grade = a wash toward the IL palette ramp (keep the footage texture).
+  vec3 ramp = IL_BLACK;
+  ramp = mix(ramp, IL_GRAPHITE,  smoothstep(0.04, 0.30, L));
+  ramp = mix(ramp, IL_BLUE,      smoothstep(0.26, 0.58, L) * 0.55);
+  ramp = mix(ramp, IL_VIOLET,    smoothstep(0.30, 0.60, L) * 0.22);
+  ramp = mix(ramp, IL_WARMWHITE, smoothstep(0.64, 0.97, L));
+  vec3 col = mix(src, ramp, 0.44);                // palette wash
+  col = mix(vec3(L), col, 0.86);                  // pull saturation down (low-sat house)
+
+  // dry-sand halation: warm-white bloom lifted off the bright striations, pooled
+  // by a slow weather field so where it gathers wanders across the flat.
+  float weather = fbm(wcoord*0.9 + vec2(0.0, -flow*0.4) + 9.0);
+  float crest = smoothstep(0.45, 0.90, L);
+  col += IL_WARMWHITE * crest * crest * (0.12 + 0.12*weather) * (0.7 + 0.6*bass);
+
+  // faint ice tint in the wet-sheet shadows (the cold water side)
+  col += IL_ICE * 0.05 * smoothstep(0.30, 0.05, L) * (0.6 + 0.4*slow2);
+
+  // gentle non-metronomic exposure breath (a few percent)
+  col *= 1.0 + 0.035*sin(t*0.70 + weather*4.0);
+
+  gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
+}
+</script>
+
+<!-- footage as a taint-free data: URI first (so file:// works with no flags),
+     external files as http(s) fallbacks. GENERATED — see assets/README.md. -->
+<script src="assets/sand-taitung.webm.b64.js"></script>
+<script src="../../lib/visual-core.js"></script>
+<script>
+  Ambient.start({
+    title: 'SAND · TAITUNG WARP',
+    subtitle: 'ambient techno · 06 · 4:3 · footage flow-warp<br>點擊進入全螢幕 — 允許麥克風以隨低音起伏<br><span style="opacity:.6">(素材：IL_001 沙洋流 · 無縫循環 · 連續漂移不循環)</span>',
+    bpm: 115,
+    video: window.IL_SAND_VIDEO || [
+      { src: 'assets/sand-taitung.webm', type: 'video/webm' },
+      { src: 'assets/sand-taitung.mp4',  type: 'video/mp4'  }
+    ]
+  });
+</script>
+</body>
+</html>
