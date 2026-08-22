@@ -1,22 +1,25 @@
 # assets — IL_driveTaitung
 
-Source footage: **IL_driveTaitung** — a driving clip from Taitung (dash / hand-held).
-It is turned into a **seamless ~30 s loop** and downscaled to 1280-wide, then that
-one loop feeds the live WebGL scene.
+Source footage: **IL_driveTaitung** — a driving clip from Taitung (dash / hand-held),
+~14.7 s, shot 10-bit **HLG / HDR** (bt2020). It is tonemapped to SDR and turned
+into a **seamless ~14 s loop** (the source length), which feeds the live WebGL
+scene. The scene's non-wrapping drift/grade makes it read as continuous driving
+well past 30 s; if you want the *file* to literally span ~30 s, `build-loop.sh`
+can seam-tile it 2× (seamless throughout).
 
 ## Drop the source clip here
 
 Commit your original clip into **this folder** as `assets/source.<ext>`
 (e.g. `assets/source.mp4` or `assets/source.mov`) and push to the branch. Claude
-then cuts the seamless 30 s loop, builds the taint-free `data:` URI, wires it into
+then cuts the seamless loop, builds the taint-free `data:` URI, wires it into
 `setlist.js`, and rebuilds `player.html`. (Anything named `source.*` is treated as
 the raw input and is not projected directly.)
 
 | file | what | committed? |
 |------|------|------------|
-| `source.<ext>`               | raw input clip you drop here                    | yes (input) |
-| `drive-taitung.mp4`          | seamless ~30 s loop, H.264 (universal)          | yes (built) |
-| `drive-taitung.webm`         | seamless ~30 s loop, VP9 (smaller, Chromium)    | yes (built) |
+| `source.mov`                 | raw HLG/HDR input clip (~14.7 s)                | yes (input) |
+| `drive-taitung.mp4`          | seamless ~14 s loop, H.264 1280w (quality)      | yes (built) |
+| `drive-taitung.webm`         | seamless ~14 s loop, VP9 1024w (inlined clip)   | yes (built) |
 | `drive-taitung.webm.b64.js`  | the webm inlined as a taint-free `data:` URI    | yes (generated) |
 
 ## Why the base64 file exists
@@ -35,24 +38,18 @@ Regenerate it whenever `drive-taitung.webm` changes:
 node build-video-datauri.js
 ```
 
-## Building the seamless 30 s loop from the source clip
+## Rebuilding the loop from the source clip
 
-`L` = crossfade length (1.0 s); output starts & ends on the frame at `L` so the
-tail dissolves back into the head → no visible seam. `T` = target loop length
-(≈ 30 s). If the source is shorter than `T`, drop `-t T`/`--to` and just loop the
-whole clip; if longer, it is trimmed to `T`.
+Use the track's script — it tonemaps HDR→SDR, cuts the seamless crossfade loop,
+makes the 1024-wide VP9 clip, and bakes the `data:` URI in one go:
 
 ```
-# 30 s seamless loop @ 1280-wide, H.264
-ffmpeg -i assets/source.mp4 -t 31 -filter_complex \
- "[0:v]scale=1280:-2:flags=lanczos,setsar=1,fps=30,split=2[m][h];\
-  [m]trim=start=1.0:end=31,setpts=PTS-STARTPTS[mid];\
-  [h]trim=start=0:end=1.0,setpts=PTS-STARTPTS,format=yuva420p,fade=t=in:st=0:d=1.0:alpha=1,setpts=PTS+29/TB[hd];\
-  [mid][hd]overlay=format=auto,format=yuv420p[out]" \
- -map "[out]" -an -c:v libx264 -crf 24 -preset slow -pix_fmt yuv420p -movflags +faststart \
- assets/drive-taitung.mp4
-# VP9 sibling
-ffmpeg -i assets/drive-taitung.mp4 -an -c:v libvpx-vp9 -crf 34 -b:v 0 -row-mt 1 -pix_fmt yuv420p \
- assets/drive-taitung.webm
-node build-video-datauri.js
+# from tracks/07-drive-taitung/ — HDR=1 because the source is 10-bit HLG
+HDR=1 ./build-loop.sh assets/source.mov
 ```
+
+Under the hood: `L` = crossfade length (1.0 s); the tail dissolves back into the
+head so the loop wraps with no visible seam (the loop point sits at source t=L).
+`T` = target loop length (≈ 30 s); a source shorter than `T` (this clip, ~14.7 s)
+is looped whole. The head clip is delayed to `BODY - 2L` and the output runs
+`BODY - L`. Drop `HDR=1` for an already-SDR source.

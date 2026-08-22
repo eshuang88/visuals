@@ -24,9 +24,12 @@ retro signal damage:
   `ambientPost` (bass swell, S-grade, vignette, film grain) so it wears the same
   skin as every track.
 
-The loop is a **seamless ~30 s** clip; `u_flow` / travel / drift / grade all
-evolve as slow functions that never wrap, so it reads as continuous driving —
-never a cut, never a hard repeat. Audio-reactive (mic bass, 115 BPM fallback).
+The source clip is ~14.7 s, so the seamless footage loop is **~14 s**; but
+`u_flow` / travel / drift / grade all evolve as slow functions that never wrap,
+and the crop-drift reframes every pass, so it reads as continuous driving **well
+past 30 s** — never a cut, never a hard repeat. Audio-reactive (mic bass, 115 BPM
+fallback). (Want the *file* to literally span ~30 s? `build-loop.sh` can seam-tile
+the loop 2×; it's seamless throughout — see `assets/README.md`.)
 
 Open `index.html` — it runs from pure `file://` (the footage is inlined as a
 taint-free `data:` URI; see `assets/README.md`).
@@ -34,8 +37,8 @@ taint-free `data:` URI; see `assets/README.md`).
 ## Building it
 
 1. Drop the raw clip into `assets/source.<ext>` (see `assets/README.md`).
-2. Cut the seamless 30 s loop → `assets/drive-taitung.mp4` + `.webm` (recipe in
-   `assets/README.md`).
+2. Cut the seamless loop → `assets/drive-taitung.mp4` + `.webm`
+   (`HDR=1 ./build-loop.sh assets/source.mov`; recipe in `assets/README.md`).
 3. `node build-video-datauri.js` → `assets/drive-taitung.webm.b64.js`.
 4. Player: this track is a visual-core scene, so it drops straight into the concert
    player — add `{ track: '07-drive-taitung' }` to `setlist.js` and run

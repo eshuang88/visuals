@@ -31,10 +31,11 @@
      Palette stays canonical IL_*, low-saturation, with a deliberate whisper of
      IL_EMBER in the mids for nostalgic diary warmth (noted per CLAUDE.md).
 
-     Loop: the footage is a seamless ~30 s loop; u_flow / travel / drift / grade
-     all evolve as slow functions that never wrap, so it reads as continuous
-     driving, never a cut and never a hard repeat. Audio-reactive (mic bass,
-     115 BPM fallback). -->
+     Loop: the source clip is ~14.7 s, so the seamless footage loop is ~14 s; but
+     u_flow / travel / drift / grade all evolve as slow functions that never wrap,
+     and the crop-drift reframes every pass, so it reads as continuous driving
+     well past 30 s — never a cut and never a hard repeat. Audio-reactive (mic
+     bass, 115 BPM fallback). -->
 <script id="scene" type="x-shader/x-fragment">
 #define TAU 6.28318530718
 
@@ -79,10 +80,13 @@ void main(){
   src.g = texture2D(u_tex, clamp(uvf, 0.001, 0.999)).g;
   src.b = texture2D(u_tex, clamp(uvb, 0.001, 0.999)).b;
 
-  // open up the (usually dark) footage before grading so ambientPost's S-crush
-  // lands with shadows readable but the mood deep.
-  src = clamp(src * 1.22, 0.0, 1.0);
-  src = pow(src, vec3(0.95));
+  // the dashcam clip is bright / high-key (blown sky). Pull it DOWN into the
+  // house near-black base: deepen the mids, then roll the blown sky down to a
+  // luminous grey so the frame reads moody (and the palette wash maps it to cool
+  // blue, not white). ambientPost's S-grade then finishes the crush.
+  src = pow(clamp(src, 0.0, 1.0), vec3(1.38));
+  float hiL = smoothstep(0.44, 1.0, dot(src, vec3(0.30, 0.59, 0.11)));
+  src *= 1.0 - 0.55*hiL;                                // tame the white-out sky (open-sun stretches)
 
   float L = dot(src, vec3(0.30, 0.59, 0.11));
 
@@ -93,18 +97,19 @@ void main(){
   ramp = mix(ramp, IL_VIOLET,    smoothstep(0.32, 0.62, L) * 0.20);
   ramp = mix(ramp, IL_WARMWHITE, smoothstep(0.66, 0.98, L));
   vec3 col = mix(src, ramp, 0.40);                       // palette wash
-  col = mix(vec3(L), col, 0.82);                         // pull saturation down
+  col = mix(vec3(L), col, 0.78);                         // pull saturation down
 
   // retro cast: cool ice in the shadows, a whisper of ember in the mids
   // (deliberate per-track warmth for the diary feel; kept tiny + low-sat).
   col += IL_ICE   * 0.05 * smoothstep(0.32, 0.05, L) * (0.6 + 0.4*slow2);
   col += IL_EMBER * 0.05 * smoothstep(0.30, 0.62, L) * (1.0 - smoothstep(0.62, 0.90, L));
 
-  // headlight / streetlight halation: warm bloom off the brightest bits, pooled
-  // by a slow field so where it gathers wanders as you drive.
+  // sky / horizon halation: a controlled warm glow lifted off the brightest bits
+  // (the high-key sky is already bright, so this stays gentle + gated high),
+  // pooled by a slow field so where it gathers wanders as you drive.
   float weather = fbm(fromC*2.0 + vec2(0.0, -travel) + 5.0);
-  float crest = smoothstep(0.60, 0.95, L);
-  col += IL_WARMWHITE * crest * crest * (0.12 + 0.14*weather) * (0.7 + 0.6*bass);
+  float crest = smoothstep(0.74, 0.98, L);
+  col += IL_WARMWHITE * crest * (0.06 + 0.08*weather) * (0.7 + 0.5*bass);
 
   // --- rolling scanline comb (subtle; drifts downward with travel) ---
   float scan = 0.5 + 0.5*sin(uv01.y*640.0 - travel*40.0);
@@ -126,6 +131,13 @@ void main(){
   // gentle non-metronomic exposure breath
   col *= 1.0 + 0.035*sin(t*0.66 + weather*4.0);
 
+  // scene vignette: frame the bright road-centre and sink the corners toward
+  // near-black (the house look; ambientPost's own vignette is deliberately mild).
+  // The centre breathes a touch with the bass, like leaning into the drive.
+  float vg = smoothstep(1.12, 0.28, length((uv01 - 0.5) * vec2(1.10, 1.30)));
+  col *= (0.34 + 0.66*vg) * (1.0 + 0.05*bass);
+  col *= 0.94;                                          // overall pull into the mood
+
   gl_FragColor = vec4(ambientPost(col, gl_FragCoord.xy, bass), 1.0);
 }
 </script>
@@ -137,7 +149,7 @@ void main(){
 <script>
   Ambient.start({
     title: 'DRIVE · TAITUNG',
-    subtitle: 'ambient techno · 07 · 4:3 · footage · retro/VHS chroma<br>點擊進入全螢幕 — 允許麥克風以隨低音起伏<br><span style="opacity:.6">(素材：IL_driveTaitung · 無縫 30 秒循環 · 一直在開車)</span>',
+    subtitle: 'ambient techno · 07 · 4:3 · footage · retro/VHS chroma<br>點擊進入全螢幕 — 允許麥克風以隨低音起伏<br><span style="opacity:.6">(素材：IL_driveTaitung · 無縫循環 · 連續開車不循環)</span>',
     bpm: 115,
     video: window.IL_DRIVE_VIDEO || [
       { src: 'assets/drive-taitung.webm', type: 'video/webm' },

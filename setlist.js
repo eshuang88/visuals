@@ -25,5 +25,6 @@ module.exports = [
   { scene: 'marble-gold.glsl',      title: 'MARBLE GOLD',         bpm: 115 },
   { scene: 'animal-loop.glsl',      title: 'ANIMAL LOOP',         bpm: 115 },
   { scene: 'la-sunset.glsl',        title: 'LA SUNSET',           bpm: 115 },
-  { track: '06-sand-taitung-warp',  title: 'SAND · TAITUNG WARP', bpm: 115 }
+  { track: '06-sand-taitung-warp',  title: 'SAND · TAITUNG WARP', bpm: 115 },
+  { track: '07-drive-taitung',      title: 'DRIVE · TAITUNG',     bpm: 115 }
 ];
